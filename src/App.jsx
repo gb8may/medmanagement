@@ -24,7 +24,7 @@ const defaultForm = {
 const defaultUser = {
   fullName: "",
   email: "",
-  phone: "",
+  phoneNumbers: ["", "", ""],
   password: "",
 };
 
@@ -32,7 +32,7 @@ const defaultUserState = {
   id: "",
   fullName: "",
   email: "",
-  phone: "",
+  phoneNumbers: ["", "", ""],
 };
 
 const toDbUser = (user, userId, username) => ({
@@ -40,7 +40,7 @@ const toDbUser = (user, userId, username) => ({
   username,
   full_name: user.fullName,
   email: user.email,
-  phone: user.phone,
+  phone_numbers: user.phoneNumbers,
 });
 
 const fromDbUser = (row) => ({
@@ -48,7 +48,7 @@ const fromDbUser = (row) => ({
   username: row.username ?? "",
   fullName: row.full_name ?? "",
   email: row.email ?? "",
-  phone: row.phone ?? "",
+  phoneNumbers: row.phone_numbers ?? ["", "", ""],
 });
 
 const normalizeUsername = (value) =>
@@ -236,10 +236,7 @@ export default function App() {
   const [tick, setTick] = useState(Date.now());
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [whatsappEnabled, setWhatsappEnabled] = useState(true);
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [notificationStatus, setNotificationStatus] = useState(
-    typeof Notification === "undefined" ? "unsupported" : Notification.permission
-  );
+  const [phoneNumbers, setPhoneNumbers] = useState(["", "", ""]);
   const [isLoadingMeds, setIsLoadingMeds] = useState(false);
   const [cloudError, setCloudError] = useState("");
   const [authError, setAuthError] = useState("");
@@ -267,11 +264,11 @@ export default function App() {
         const parsed = JSON.parse(settings);
         setNotificationsEnabled(Boolean(parsed.notificationsEnabled));
         setWhatsappEnabled(Boolean(parsed.whatsappEnabled));
-        setPhoneNumber(parsed.phoneNumber || "");
+        setPhoneNumbers(parsed.phoneNumbers || ["", "", ""]);
       } catch {
         setNotificationsEnabled(false);
         setWhatsappEnabled(false);
-        setPhoneNumber("");
+        setPhoneNumbers(["", "", ""]);
       }
     }
 
@@ -284,7 +281,7 @@ export default function App() {
           setUserForm({
             fullName: parsed.fullName || "",
             email: parsed.email || "",
-            phone: parsed.phone || "",
+            phoneNumbers: parsed.phoneNumbers || ["", "", ""],
             password: "",
           });
           setShowProfileForm(!parsed.id);
@@ -303,9 +300,9 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(
       SETTINGS_KEY,
-      JSON.stringify({ notificationsEnabled, whatsappEnabled, phoneNumber })
+      JSON.stringify({ notificationsEnabled, whatsappEnabled, phoneNumbers })
     );
-  }, [notificationsEnabled, whatsappEnabled, phoneNumber]);
+  }, [notificationsEnabled, whatsappEnabled, phoneNumbers]);
 
   useEffect(() => {
     if (!cloudEnabled) {
@@ -371,19 +368,17 @@ export default function App() {
         setUserForm({
           fullName: updatedUser.fullName,
           email: updatedUser.email,
-          phone: updatedUser.phone,
+          phoneNumbers: updatedUser.phoneNumbers,
           password: "",
         });
-        if (!phoneNumber && updatedUser.phone) {
-          setPhoneNumber(updatedUser.phone);
-        }
+        setPhoneNumbers(updatedUser.phoneNumbers ?? ["", "", ""]);
       } catch {
         setCloudError("Não foi possível carregar o perfil compartilhado.");
       }
     };
 
     loadUserFromCloud();
-  }, [cloudEnabled, user.id, phoneNumber]);
+  }, [cloudEnabled, user.id]);
 
   useEffect(() => {
     const loadMedsFromCloud = async () => {
@@ -423,11 +418,7 @@ export default function App() {
     const baseMeds = updatedMeds ?? meds;
     setAlerts(dueAlerts);
 
-    if (
-      notificationsEnabled &&
-      notificationStatus === "granted" &&
-      dueAlerts.length
-    ) {
+    if (notificationsEnabled && dueAlerts.length) {
       dueAlerts.forEach((alert) => {
         new Notification(`Hora de tomar ${alert.name}`, {
           body: `Dose: ${alert.doseAmount} ${alert.unit} às ${alert.time}.`,
@@ -435,7 +426,8 @@ export default function App() {
       });
     }
 
-    if (whatsappEnabled && phoneNumber) {
+    const activePhoneNumbers = phoneNumbers.filter((value) => value.trim());
+    if (whatsappEnabled && activePhoneNumbers.length) {
       const { queue, updatedMeds: whatsappUpdatedMeds } = computeWhatsappQueue(
         baseMeds,
         dueAlerts,
@@ -450,20 +442,22 @@ export default function App() {
       if (queue.length) {
         const sendQueue = async () => {
           for (const message of queue) {
-            try {
-              const response = await fetch(WHATSAPP_ENDPOINT, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ to: phoneNumber, message }),
-              });
-              if (!response.ok) {
+            for (const to of activePhoneNumbers) {
+              try {
+                const response = await fetch(WHATSAPP_ENDPOINT, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ to, message }),
+                });
+                if (!response.ok) {
+                  setWhatsappStatus("error");
+                } else {
+                  setWhatsappStatus("success");
+                }
+              } catch {
+                // Falha silenciosa para não travar o fluxo principal.
                 setWhatsappStatus("error");
-              } else {
-                setWhatsappStatus("success");
               }
-            } catch {
-              // Falha silenciosa para não travar o fluxo principal.
-              setWhatsappStatus("error");
             }
           }
         };
@@ -479,9 +473,8 @@ export default function App() {
     meds,
     tick,
     notificationsEnabled,
-    notificationStatus,
     whatsappEnabled,
-    phoneNumber,
+    phoneNumbers,
   ]);
 
   const lowStockMeds = useMemo(
@@ -497,21 +490,25 @@ export default function App() {
     setUserForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleSaveUser = async (event) => {
+  const handlePhoneNumberChange = (index, value) => {
+    setUserForm((prev) => {
+      const updated = [...prev.phoneNumbers];
+      updated[index] = value;
+      return { ...prev, phoneNumbers: updated };
+    });
+  };
+
+  const handleLogin = async (event) => {
     event.preventDefault();
-    const trimmedUser = {
-      fullName: userForm.fullName.trim(),
-      email: userForm.email.trim(),
-      phone: userForm.phone.trim(),
-    };
+    const fullName = userForm.fullName.trim();
     const password = userForm.password.trim();
-    if (!trimmedUser.fullName || !password) {
-      setAuthError("Informe nome e senha para continuar.");
+    if (!fullName || !password) {
+      setAuthError("Informe usuario e senha para continuar.");
       return;
     }
-    const username = normalizeUsername(trimmedUser.fullName);
+    const username = normalizeUsername(fullName);
     if (!username) {
-      setAuthError("Informe um nome válido para login.");
+      setAuthError("Informe um nome valido para login.");
       return;
     }
     const authEmail = buildAuthEmail(username);
@@ -519,30 +516,69 @@ export default function App() {
     if (cloudEnabled) {
       setAuthLoading(true);
       try {
-        let authUserId = user.id;
-        if (!authUserId) {
-          const { data: signInData, error: signInError } =
-            await supabase.auth.signInWithPassword({
-              email: authEmail,
-              password,
-            });
-          if (signInError) {
-            const { data: signUpData, error: signUpError } =
-              await supabase.auth.signUp({
-                email: authEmail,
-                password,
-              });
-            if (signUpError) throw signUpError;
-            authUserId = signUpData.user?.id;
-          } else {
-            authUserId = signInData.user?.id;
-          }
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: authEmail,
+          password,
+        });
+        if (error) {
+          setAuthError("Usuario ou senha invalidos.");
+          return;
         }
+        if (!data.user?.id) {
+          throw new Error("Auth user not available");
+        }
+        setAuthError("");
+        setUserForm((prev) => ({ ...prev, password: "" }));
+        setShowProfileForm(false);
+      } catch {
+        setCloudError("Nao foi possivel autenticar o usuario.");
+      } finally {
+        setAuthLoading(false);
+      }
+      return;
+    }
 
+    setUser({ id: "local-user", fullName, email: "", phoneNumbers: ["", "", ""] });
+    setAuthError("");
+    setUserForm((prev) => ({ ...prev, password: "" }));
+    setShowProfileForm(false);
+  };
+
+  const handleCreateUser = async () => {
+    const fullName = userForm.fullName.trim();
+    const password = userForm.password.trim();
+    if (!fullName || !password) {
+      setAuthError("Informe usuario e senha para cadastrar.");
+      return;
+    }
+    const username = normalizeUsername(fullName);
+    if (!username) {
+      setAuthError("Informe um nome valido para cadastro.");
+      return;
+    }
+    const authEmail = buildAuthEmail(username);
+
+    if (cloudEnabled) {
+      setAuthLoading(true);
+      try {
+        const { data: signUpData, error: signUpError } =
+          await supabase.auth.signUp({
+            email: authEmail,
+            password,
+          });
+        if (signUpError) {
+          setAuthError("Usuario ja existe ou senha invalida.");
+          return;
+        }
+        const authUserId = signUpData.user?.id;
         if (!authUserId) {
           throw new Error("Auth user not available");
         }
-
+        const trimmedUser = {
+          fullName,
+          email: "",
+          phoneNumbers: ["", "", ""],
+        };
         const { data, error } = await supabase
           .from("profiles")
           .upsert(toDbUser(trimmedUser, authUserId, username))
@@ -550,24 +586,62 @@ export default function App() {
           .single();
         if (error) throw error;
         setUser(fromDbUser(data));
-        setCloudError("");
         setAuthError("");
         setUserForm((prev) => ({ ...prev, password: "" }));
+        setShowProfileForm(true);
+      } catch {
+        setCloudError("Nao foi possivel criar o usuario.");
+      } finally {
+        setAuthLoading(false);
+      }
+      return;
+    }
+
+    setUser({ id: "local-user", fullName, email: "", phoneNumbers: ["", "", ""] });
+    setAuthError("");
+    setUserForm((prev) => ({ ...prev, password: "" }));
+    setShowProfileForm(true);
+  };
+
+  const handleSaveUser = async (event) => {
+    event.preventDefault();
+    const trimmedUser = {
+      fullName: userForm.fullName.trim(),
+      email: userForm.email.trim(),
+      phoneNumbers: userForm.phoneNumbers.map((phone) => phone.trim()),
+    };
+    if (!trimmedUser.fullName) {
+      setAuthError("Informe o nome completo.");
+      return;
+    }
+
+    if (cloudEnabled) {
+      setAuthLoading(true);
+      try {
+        const username = user.username || normalizeUsername(trimmedUser.fullName);
+        const { data, error } = await supabase
+          .from("profiles")
+          .update(toDbUser(trimmedUser, user.id, username))
+          .eq("id", user.id)
+          .select()
+          .single();
+        if (error) throw error;
+        setUser(fromDbUser(data));
+        setCloudError("");
+        setAuthError("");
         setShowProfileForm(false);
       } catch {
-        setCloudError("Não foi possível salvar ou autenticar o perfil.");
+        setCloudError("Nao foi possivel salvar o perfil.");
+      } finally {
+        setAuthLoading(false);
       }
     } else {
-      setUser({ id: user.id || "local-user", ...trimmedUser });
+      setUser({ ...user, ...trimmedUser });
       setAuthError("");
-      setUserForm((prev) => ({ ...prev, password: "" }));
       setShowProfileForm(false);
     }
-    setAuthLoading(false);
 
-    if (!phoneNumber && trimmedUser.phone) {
-      setPhoneNumber(trimmedUser.phone);
-    }
+    setPhoneNumbers(trimmedUser.phoneNumbers);
   };
 
   const handleSwitchUser = () => {
@@ -577,7 +651,7 @@ export default function App() {
     setUser(defaultUserState);
     setUserForm(defaultUser);
     setMeds([]);
-    setPhoneNumber("");
+    setPhoneNumbers(["", "", ""]);
     setShowProfileForm(true);
     setAuthError("");
     localStorage.removeItem(USER_KEY);
@@ -705,18 +779,6 @@ export default function App() {
     }
   };
 
-  const requestNotifications = async () => {
-    if (typeof Notification === "undefined") {
-      setNotificationStatus("unsupported");
-      return;
-    }
-
-    const permission = await Notification.requestPermission();
-    setNotificationStatus(permission);
-    if (permission === "granted") {
-      setNotificationsEnabled(true);
-    }
-  };
 
   return (
     <div className="app">
@@ -773,28 +835,17 @@ export default function App() {
                   ? "Desativar alertas do app"
                   : "Ativar alertas do app"}
               </button>
-              <button className="btn" type="button" onClick={requestNotifications}>
-                {notificationStatus === "granted"
-                  ? "Alertas do navegador ativos"
-                  : "Ativar alertas do navegador"}
-              </button>
-              {notificationStatus === "denied" && (
-                <span className="helper-text">
-                  Permissão do navegador negada. Libere nas configurações do site.
-                </span>
-              )}
             </div>
             <div className="sms-card">
               <h4>Alertas por WhatsApp</h4>
-              <label>
-                Telefone (com DDI)
-                <input
-                  type="tel"
-                  placeholder="+5511999999999"
-                  value={phoneNumber}
-                  onChange={(event) => setPhoneNumber(event.target.value)}
-                />
-              </label>
+              <div className="med-info">
+                <span>
+                  <strong>Telefones:</strong>{" "}
+                  {phoneNumbers.filter((value) => value.trim()).length
+                    ? phoneNumbers.filter((value) => value.trim()).join(", ")
+                    : "Nenhum cadastrado"}
+                </span>
+              </div>
               <button
                 className="btn secondary"
                 type="button"
@@ -814,13 +865,13 @@ export default function App() {
         )}
       </header>
 
-      {!hasProfile || showProfileForm ? (
+      {!hasProfile ? (
         <section className="grid">
           <div className="card">
-            <h2>Perfil do usuário</h2>
-            <form className="form" onSubmit={handleSaveUser}>
+            <h2>Entrar</h2>
+            <form className="form" onSubmit={handleLogin}>
               <label>
-                Nome completo
+                Usuario
                 <input
                   type="text"
                   placeholder="Ex: Maria Silva"
@@ -841,6 +892,38 @@ export default function App() {
                   }
                 />
               </label>
+              {authError && <span className="helper-text">{authError}</span>}
+              {cloudError && <span className="helper-text">{cloudError}</span>}
+              <button className="btn primary" type="submit" disabled={authLoading}>
+                {authLoading ? "Entrando..." : "Entrar"}
+              </button>
+              <button
+                className="btn ghost"
+                type="button"
+                onClick={handleCreateUser}
+                disabled={authLoading}
+              >
+                Criar novo usuario
+              </button>
+            </form>
+          </div>
+        </section>
+      ) : showProfileForm ? (
+        <section className="grid">
+          <div className="card">
+            <h2>Perfil do usuário</h2>
+            <form className="form" onSubmit={handleSaveUser}>
+              <label>
+                Nome completo
+                <input
+                  type="text"
+                  placeholder="Ex: Maria Silva"
+                  value={userForm.fullName}
+                  onChange={(event) =>
+                    handleUserChange("fullName", event.target.value)
+                  }
+                />
+              </label>
               <label>
                 Email (opcional)
                 <input
@@ -850,19 +933,28 @@ export default function App() {
                   onChange={(event) => handleUserChange("email", event.target.value)}
                 />
               </label>
-              <label>
-                Telefone (WhatsApp)
-                <input
-                  type="tel"
-                  placeholder="+5511999999999"
-                  value={userForm.phone}
-                  onChange={(event) => handleUserChange("phone", event.target.value)}
-                />
-              </label>
+              <div className="times">
+                <span>Telefones (WhatsApp)</span>
+                {userForm.phoneNumbers.map((phone, index) => (
+                  <div className="time-row" key={`phone-${index}`}>
+                    <input
+                      type="tel"
+                      placeholder="+5511999999999"
+                      value={phone}
+                      onChange={(event) =>
+                        handlePhoneNumberChange(index, event.target.value)
+                      }
+                    />
+                  </div>
+                ))}
+                <span className="helper-text">
+                  Adicione ate 3 numeros para receber alertas.
+                </span>
+              </div>
               {authError && <span className="helper-text">{authError}</span>}
               {cloudError && <span className="helper-text">{cloudError}</span>}
               <button className="btn primary" type="submit" disabled={authLoading}>
-                {authLoading ? "Entrando..." : "Entrar ou criar perfil"}
+                {authLoading ? "Salvando..." : "Salvar perfil"}
               </button>
               {hasProfile && (
                 <button
