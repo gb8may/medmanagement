@@ -108,9 +108,9 @@ type MedRow = {
 
 export default async () => {
   const startTime = Date.now();
-  const MAX_DURATION_MS = 50_000;
-  const MAX_SENDS_PER_RUN = 50;
-  const PAGE_SIZE = 200;
+  const MAX_DURATION_MS = 20_000;
+  const MAX_SENDS_PER_RUN = 10;
+  const PAGE_SIZE = 50;
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SERVICE_ROLE_KEY");
   const accountSid = Deno.env.get("TWILIO_ACCOUNT_SID");
