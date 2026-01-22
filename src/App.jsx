@@ -1002,6 +1002,9 @@ export default function App() {
           </section>
         </>
       )}
+      <footer className="app-footer">
+        v0.0.1 - Author: Mayara Gouveia
+      </footer>
     </div>
   );
 }

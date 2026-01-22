@@ -5,7 +5,7 @@
 body {
   margin: 0;
   font-family: "Inter", system-ui, -apple-system, sans-serif;
-  background: radial-gradient(circle at top, #1a2238 0%, #0f111a 45%, #0b0d13 100%);
+  background: radial-gradient(circle at top, #3a1216 0%, #22090d 45%, #140607 100%);
   color: #f8fafc;
 }
 
@@ -34,7 +34,7 @@ textarea {
   letter-spacing: 0.3em;
   font-weight: 600;
   font-size: 0.75rem;
-  color: #7dd3fc;
+  color: #fca5a5;
   margin: 0 0 12px;
 }
 
@@ -52,11 +52,11 @@ h1 {
 .hero-card,
 .card,
 .med-card {
-  background: rgba(16, 20, 34, 0.9);
+  background: rgba(26, 10, 12, 0.92);
   border-radius: 20px;
   padding: 24px;
   border: 1px solid rgba(148, 163, 184, 0.2);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
 }
 
 .hero-card h3 {
@@ -124,13 +124,13 @@ textarea {
   padding: 12px 14px;
   border-radius: 12px;
   border: 1px solid rgba(148, 163, 184, 0.2);
-  background: rgba(15, 23, 42, 0.9);
+  background: rgba(30, 10, 12, 0.9);
   color: #f8fafc;
 }
 
 input:focus,
 textarea:focus {
-  outline: 2px solid rgba(125, 211, 252, 0.6);
+  outline: 2px solid rgba(248, 113, 113, 0.6);
   border-color: transparent;
 }
 
@@ -169,14 +169,14 @@ textarea:focus {
   padding: 10px 18px;
   font-weight: 600;
   cursor: pointer;
-  background: linear-gradient(120deg, #38bdf8, #6366f1);
-  color: #0f172a;
+  background: linear-gradient(120deg, #f43f5e, #f97316);
+  color: #1f0a0d;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 12px 24px rgba(56, 189, 248, 0.25);
+  box-shadow: 0 12px 24px rgba(244, 63, 94, 0.25);
 }
 
 .btn.secondary {
@@ -186,8 +186,8 @@ textarea:focus {
 
 .btn.ghost {
   background: transparent;
-  color: #94a3b8;
-  border: 1px solid rgba(148, 163, 184, 0.4);
+  color: #fca5a5;
+  border: 1px solid rgba(248, 113, 113, 0.4);
 }
 
 .btn.primary {
@@ -217,7 +217,7 @@ textarea:focus {
   align-items: center;
   padding: 12px 16px;
   border-radius: 14px;
-  background: rgba(30, 41, 59, 0.7);
+  background: rgba(51, 20, 26, 0.7);
   border: 1px solid rgba(148, 163, 184, 0.2);
 }
 
@@ -234,8 +234,8 @@ textarea:focus {
 .badge {
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(56, 189, 248, 0.2);
-  color: #7dd3fc;
+  background: rgba(248, 113, 113, 0.2);
+  color: #fecaca;
   font-size: 0.75rem;
   font-weight: 600;
 }
@@ -307,6 +307,15 @@ textarea:focus {
 .notes {
   color: #c7d2fe;
   font-style: italic;
+}
+
+.app-footer {
+  text-align: center;
+  color: #fecaca;
+  font-size: 0.75rem;
+  font-weight: 400;
+  padding-top: 12px;
+  border-top: 1px solid rgba(248, 113, 113, 0.2);
 }
 
 @media (max-width: 720px) {
