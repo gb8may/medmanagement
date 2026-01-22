@@ -115,7 +115,10 @@ const fetchProfiles = async (userIds) => {
   const results = await Promise.all(
     chunks.map(async (chunk) => {
       const url = new URL(`${supabaseUrl}/rest/v1/profiles`);
-      url.searchParams.set("select", "id,phone_numbers,whatsapp_enabled,timezone");
+      url.searchParams.set(
+        "select",
+        "id,full_name,phone_numbers,whatsapp_enabled,timezone"
+      );
       url.searchParams.set("id", `in.(${chunk.join(",")})`);
       const response = await fetch(url, {
         headers: {
@@ -185,6 +188,8 @@ const run = async () => {
       let newStock = med.stock;
       let shouldUpdate = false;
 
+      const greeting = profile.full_name ? `Olá ${profile.full_name}, ` : "";
+
       for (const time of med.schedule_times) {
         const scheduledMinutes = toMinutes(time);
         const diffMinutes = nowMinutes - scheduledMinutes;
@@ -192,7 +197,7 @@ const run = async () => {
 
         const alertKey = buildAlertKey(parts.dateString, time);
         if (med.last_whatsapp_alert_key !== alertKey) {
-          const message = `Hora de tomar ${med.name}. Dose: ${med.dose_amount} ${med.unit} às ${time}.`;
+          const message = `${greeting}Hora de tomar ${med.name}. ${med.dose_amount} ${med.unit} às ${time}.`;
           for (const phone of phones) {
             await sendWhatsApp(phone, message);
             sentCount += 1;
@@ -214,7 +219,7 @@ const run = async () => {
         med.stock <= med.low_threshold &&
         med.last_low_stock_whatsapp_date !== parts.dateString
       ) {
-        const message = `Estoque baixo: ${med.name}. Restam ${med.stock} unidades. Providencie reposição.`;
+        const message = `${greeting}Estoque baixo: ${med.name}. Restam ${med.stock} comprimidos. Providencie reposição.`;
         for (const phone of phones) {
           await sendWhatsApp(phone, message);
           sentCount += 1;

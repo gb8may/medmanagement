@@ -12,30 +12,28 @@ const sampleMeds = [];
 const defaultForm = {
   name: "",
   dosage: "",
-  unit: "mg",
+  unit: "comprimidos",
   doseAmount: 1,
   stock: 30,
   lowThreshold: 5,
   scheduleTimes: ["08:00"],
   alertsEnabled: true,
-  autoDeduct: false,
+  autoDeduct: true,
   notes: "",
 };
 
 const defaultUser = {
   fullName: "",
-  email: "",
   phoneNumbers: ["", "", "", ""],
   password: "",
-  timezone: "UTC",
+  timezone: "device",
 };
 
 const defaultUserState = {
   id: "",
   fullName: "",
-  email: "",
   phoneNumbers: ["", "", "", ""],
-  timezone: "UTC",
+  timezone: "device",
   whatsappEnabled: true,
 };
 
@@ -43,7 +41,6 @@ const toDbUser = (user, userId, username, whatsappEnabled, timezone) => ({
   id: userId,
   username,
   full_name: user.fullName,
-  email: user.email,
   phone_numbers: user.phoneNumbers,
   whatsapp_enabled: whatsappEnabled,
   timezone,
@@ -53,11 +50,16 @@ const fromDbUser = (row) => ({
   id: row.id,
   username: row.username ?? "",
   fullName: row.full_name ?? "",
-  email: row.email ?? "",
   phoneNumbers: row.phone_numbers ?? ["", "", "", ""],
   whatsappEnabled: row.whatsapp_enabled ?? true,
-  timezone: row.timezone ?? "UTC",
+  timezone: row.timezone ?? "device",
 });
+
+const timezoneOptions = [
+  { value: "device", label: "Copiar do Smartphone" },
+  { value: "America/Sao_Paulo", label: "Brasil" },
+  { value: "America/New_York", label: "Canada (EST)" },
+];
 
 const normalizeUsername = (value) =>
   value
@@ -67,6 +69,18 @@ const normalizeUsername = (value) =>
     .toLowerCase();
 
 const buildAuthEmail = (username) => `${username}@medwatch.local`;
+
+const getDeviceTimezone = () =>
+  Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+const resolveTimezoneValue = (selection) =>
+  selection === "device" ? getDeviceTimezone() : selection;
+
+const resolveTimezoneSelection = (storedTimezone) => {
+  if (!storedTimezone) return "device";
+  if (storedTimezone === getDeviceTimezone()) return "device";
+  return storedTimezone;
+};
 
 const toDbMed = (med, userId) => ({
   user_id: userId,
@@ -91,7 +105,7 @@ const fromDbMed = (row) => ({
   id: row.id,
   name: row.name ?? "",
   dosage: row.dosage ?? "",
-  unit: row.unit ?? "mg",
+  unit: row.unit ?? "comprimidos",
   doseAmount: row.dose_amount ?? 1,
   stock: row.stock ?? 0,
   lowThreshold: row.low_threshold ?? 0,
@@ -232,7 +246,7 @@ const applyAutoDoses = (meds, dueAlerts, now) => {
 };
 
 const buildDoseWhatsApp = (alert) =>
-  `Hora de tomar ${alert.name}. Dose: ${alert.doseAmount} ${alert.unit} às ${alert.time}.`;
+  `Hora de tomar ${alert.name}. ${alert.doseAmount} ${alert.unit} às ${alert.time}.`;
 
 const buildLowStockWhatsApp = (med) =>
   `Estoque baixo: ${med.name}. Restam ${med.stock} unidades. Providencie reposição.`;
@@ -340,10 +354,9 @@ export default function App() {
           setUser(parsed);
           setUserForm({
             fullName: parsed.fullName || "",
-            email: parsed.email || "",
             phoneNumbers: parsed.phoneNumbers || ["", "", "", ""],
             password: "",
-            timezone: parsed.timezone || "UTC",
+            timezone: resolveTimezoneSelection(parsed.timezone),
           });
           setShowProfileForm(!parsed.id);
         } catch {
@@ -378,10 +391,6 @@ export default function App() {
       const { data } = await supabase.auth.getSession();
       if (data.session?.user) {
         setUser((prev) => ({ ...prev, id: data.session.user.id }));
-        setUserForm((prev) => ({
-          ...prev,
-          email: data.session.user.email || prev.email,
-        }));
         setShowProfileForm(false);
       }
     };
@@ -392,10 +401,6 @@ export default function App() {
       (_event, session) => {
         if (session?.user) {
           setUser((prev) => ({ ...prev, id: session.user.id }));
-          setUserForm((prev) => ({
-            ...prev,
-            email: session.user.email || prev.email,
-          }));
         } else {
           setUser(defaultUserState);
           setMeds([]);
@@ -428,10 +433,9 @@ export default function App() {
         setUser(updatedUser);
         setUserForm({
           fullName: updatedUser.fullName,
-          email: updatedUser.email,
           phoneNumbers: updatedUser.phoneNumbers,
           password: "",
-          timezone: updatedUser.timezone || "UTC",
+          timezone: resolveTimezoneSelection(updatedUser.timezone),
         });
         setPhoneNumbers(updatedUser.phoneNumbers ?? ["", "", "", ""]);
         setWhatsappEnabled(updatedUser.whatsappEnabled ?? true);
@@ -484,7 +488,7 @@ export default function App() {
     if (notificationsEnabled && dueAlerts.length) {
       dueAlerts.forEach((alert) => {
         new Notification(`Hora de tomar ${alert.name}`, {
-          body: `Dose: ${alert.doseAmount} ${alert.unit} às ${alert.time}.`,
+          body: `${alert.doseAmount} ${alert.unit} às ${alert.time}.`,
         });
       });
     }
@@ -581,6 +585,10 @@ export default function App() {
     });
   };
 
+  const handleTimezoneChange = (value) => {
+    setUserForm((prev) => ({ ...prev, timezone: value }));
+  };
+
   const handleLogin = async (event) => {
     event.preventDefault();
     const fullName = userForm.fullName.trim();
@@ -624,7 +632,6 @@ export default function App() {
     setUser({
       id: "local-user",
       fullName,
-      email: "",
       phoneNumbers: ["", "", "", ""],
     });
     setAuthError("");
@@ -664,9 +671,8 @@ export default function App() {
         }
         const trimmedUser = {
           fullName,
-          email: "",
           phoneNumbers: ["", "", "", ""],
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+          timezone: resolveTimezoneValue(userForm.timezone || "device"),
         };
         const whatsappEnabledValue = true;
         const { data, error } = await supabase
@@ -698,9 +704,8 @@ export default function App() {
     setUser({
       id: "local-user",
       fullName,
-      email: "",
       phoneNumbers: ["", "", "", ""],
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+      timezone: resolveTimezoneValue(userForm.timezone || "device"),
       whatsappEnabled: true,
     });
     setAuthError("");
@@ -712,9 +717,8 @@ export default function App() {
     event.preventDefault();
     const trimmedUser = {
       fullName: userForm.fullName.trim(),
-      email: userForm.email.trim(),
       phoneNumbers: userForm.phoneNumbers.map((phone) => phone.trim()),
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+      timezone: resolveTimezoneValue(userForm.timezone || "device"),
     };
     if (!trimmedUser.fullName) {
       setAuthError("Informe o nome completo.");
@@ -770,23 +774,22 @@ export default function App() {
     if (!cloudEnabled || !user.id) return;
     try {
       const username = user.username || normalizeUsername(user.fullName);
-      await supabase
-        .from("profiles")
-        .update(
-          toDbUser(
-            {
-              fullName: user.fullName,
-              email: user.email,
-              phoneNumbers,
-              timezone: user.timezone || "UTC",
-            },
-            user.id,
-            username,
-            nextValue,
-            user.timezone || "UTC"
+        await supabase
+          .from("profiles")
+          .update(
+            toDbUser(
+              {
+                fullName: user.fullName,
+                phoneNumbers,
+                timezone: user.timezone || "UTC",
+              },
+              user.id,
+              username,
+              nextValue,
+              user.timezone || "UTC"
+            )
           )
-        )
-        .eq("id", user.id);
+          .eq("id", user.id);
     } catch {
       setCloudError("Não foi possível atualizar o WhatsApp.");
     }
@@ -862,7 +865,7 @@ export default function App() {
       id: crypto?.randomUUID?.() ?? `med-${Date.now()}`,
       name: form.name.trim(),
       dosage: form.dosage.trim(),
-      unit: form.unit.trim() || "mg",
+      unit: "comprimidos",
       doseAmount: toNumber(form.doseAmount, 1),
       stock: toNumber(form.stock, 0),
       lowThreshold: toNumber(form.lowThreshold, 0),
@@ -1088,15 +1091,6 @@ export default function App() {
                   }
                 />
               </label>
-              <label>
-                Email (opcional)
-                <input
-                  type="email"
-                  placeholder="exemplo@email.com"
-                  value={userForm.email}
-                  onChange={(event) => handleUserChange("email", event.target.value)}
-                />
-              </label>
               <div className="times">
                 <span>Telefones (WhatsApp)</span>
                 {userForm.phoneNumbers.map((phone, index) => (
@@ -1114,6 +1108,21 @@ export default function App() {
                 <span className="helper-text">
                   Adicione ate 4 numeros para receber alertas.
                 </span>
+              </div>
+              <div className="times">
+                <span>Timezone</span>
+                {timezoneOptions.map((option) => (
+                  <label className="toggle" key={option.value}>
+                    <input
+                      type="radio"
+                      name="timezone"
+                      value={option.value}
+                      checked={userForm.timezone === option.value}
+                      onChange={(event) => handleTimezoneChange(event.target.value)}
+                    />
+                    {option.label}
+                  </label>
+                ))}
               </div>
               {authError && <span className="helper-text">{authError}</span>}
               {cloudError && <span className="helper-text">{cloudError}</span>}
@@ -1161,18 +1170,7 @@ export default function App() {
                 />
               </label>
               <label>
-                Unidade
-                <input
-                  type="text"
-                  placeholder="mg"
-                  value={form.unit}
-                  onChange={(event) => handleFormChange("unit", event.target.value)}
-                />
-              </label>
-            </div>
-            <div className="row">
-              <label>
-                Quantidade por dose
+                Quantos comprimidos por dose
                 <input
                   type="number"
                   min="1"
@@ -1182,6 +1180,8 @@ export default function App() {
                   }
                 />
               </label>
+            </div>
+            <div className="row">
               <label>
                 Estoque atual
                 <input
@@ -1290,7 +1290,7 @@ export default function App() {
                         <div>
                           <strong>{alert.name}</strong>
                           <span>
-                            Dose: {alert.doseAmount} {alert.unit} às {alert.time}
+                        {alert.doseAmount} {alert.unit} às {alert.time}
                           </span>
                         </div>
                         <span className="badge">Agora</span>
