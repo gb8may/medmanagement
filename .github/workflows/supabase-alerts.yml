@@ -9,16 +9,20 @@ jobs:
   send-alerts:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Supabase alert function
+      - name: Run scheduled alerts
         env:
-          SUPABASE_FUNCTION_URL: ${{ secrets.SUPABASE_FUNCTION_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SERVICE_ROLE_KEY: ${{ secrets.SERVICE_ROLE_KEY }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_WHATSAPP_FROM: ${{ secrets.TWILIO_WHATSAPP_FROM }}
         run: |
-          if [ -z "$SUPABASE_FUNCTION_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
-            echo "Missing SUPABASE_FUNCTION_URL or SUPABASE_ANON_KEY secrets."
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SERVICE_ROLE_KEY" ]; then
+            echo "Missing SUPABASE_URL or SERVICE_ROLE_KEY secrets."
             exit 1
           fi
-          curl -sS -X POST "$SUPABASE_FUNCTION_URL" \
-            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
-            -H "Content-Type: application/json" \
-            -d "{}"
+          if [ -z "$TWILIO_ACCOUNT_SID" ] || [ -z "$TWILIO_AUTH_TOKEN" ] || [ -z "$TWILIO_WHATSAPP_FROM" ]; then
+            echo "Missing Twilio secrets."
+            exit 1
+          fi
+          node "scripts/send-alerts.mjs"

@@ -31,14 +31,17 @@ Para enviar alertas mesmo com o navegador fechado, use a Edge Function do Supaba
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_WHATSAPP_FROM` (ex: `whatsapp:+14155238886`)
 
-### Deploy da Function
+### Agendamento via GitHub Actions
 
-```
-supabase functions deploy send-alerts
-```
+O workflow em `.github/workflows/supabase-alerts.yml` executa o envio em background.
 
-Depois, no painel do Supabase, crie um **Scheduled Function** para rodar
-`send-alerts` a cada minuto.
+Configure os secrets no GitHub:
+
+- `SUPABASE_URL`
+- `SERVICE_ROLE_KEY`
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_WHATSAPP_FROM`
 
 ### Ajustes no banco (Supabase)
 
