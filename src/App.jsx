@@ -234,8 +234,8 @@ export default function App() {
   const [showProfileForm, setShowProfileForm] = useState(true);
   const [alerts, setAlerts] = useState([]);
   const [tick, setTick] = useState(Date.now());
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-  const [whatsappEnabled, setWhatsappEnabled] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [whatsappEnabled, setWhatsappEnabled] = useState(true);
   const [phoneNumber, setPhoneNumber] = useState("");
   const [notificationStatus, setNotificationStatus] = useState(
     typeof Notification === "undefined" ? "unsupported" : Notification.permission
@@ -244,6 +244,7 @@ export default function App() {
   const [cloudError, setCloudError] = useState("");
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
+  const [whatsappStatus, setWhatsappStatus] = useState("idle");
 
   const hasProfile = Boolean(user.id);
   const cloudEnabled = Boolean(isSupabaseConfigured && supabase);
@@ -450,13 +451,19 @@ export default function App() {
         const sendQueue = async () => {
           for (const message of queue) {
             try {
-              await fetch(WHATSAPP_ENDPOINT, {
+              const response = await fetch(WHATSAPP_ENDPOINT, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ to: phoneNumber, message }),
               });
+              if (!response.ok) {
+                setWhatsappStatus("error");
+              } else {
+                setWhatsappStatus("success");
+              }
             } catch {
               // Falha silenciosa para não travar o fluxo principal.
+              setWhatsappStatus("error");
             }
           }
         };
@@ -796,7 +803,11 @@ export default function App() {
                 {whatsappEnabled ? "Desativar WhatsApp" : "Ativar WhatsApp"}
               </button>
               <span className="helper-text">
-              Requer Twilio WhatsApp configurado no Netlify.
+              {whatsappStatus === "success"
+                ? "Twilio WhatsApp configurado e enviando."
+                : whatsappStatus === "error"
+                  ? "Falha ao enviar via Twilio. Revise as variaveis."
+                  : "Requer Twilio WhatsApp configurado no Netlify."}
               </span>
             </div>
           </div>
