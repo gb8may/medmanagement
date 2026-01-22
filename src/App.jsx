@@ -977,17 +977,6 @@ export default function App() {
                 <strong>{lowStockMeds.length}</strong>
               </div>
             </div>
-            <div className="hero-actions">
-              <button
-                className="btn secondary"
-                type="button"
-                onClick={() => setNotificationsEnabled((prev) => !prev)}
-              >
-                {notificationsEnabled
-                  ? "Desativar alertas do app"
-                  : "Ativar alertas do app"}
-              </button>
-            </div>
             <div className="sms-card">
               <h4>Alertas por WhatsApp</h4>
               <div className="med-info">
@@ -998,13 +987,6 @@ export default function App() {
                     : "Nenhum cadastrado"}
                 </span>
               </div>
-              <button
-                className="btn secondary"
-                type="button"
-                onClick={handleToggleWhatsapp}
-              >
-                {whatsappEnabled ? "Desativar WhatsApp" : "Ativar WhatsApp"}
-              </button>
               <span className="helper-text">
               {whatsappStatus === "success"
                 ? "Twilio WhatsApp configurado e enviando."
@@ -1259,11 +1241,6 @@ export default function App() {
                 {notificationsEnabled && alerts.length === 0 && (
                   <p className="muted">
                     Nenhum alerta previsto nos próximos minutos.
-                  </p>
-                )}
-                {!notificationsEnabled && (
-                  <p className="muted">
-                    Ative os alertas do app para ver as notificações em tempo real.
                   </p>
                 )}
                 {notificationsEnabled && alerts.length > 0 && (
