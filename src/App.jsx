@@ -928,7 +928,10 @@ export default function App() {
     <div className="app">
       <header className="hero">
         <div>
-          <p className="eyebrow">MedWatch</p>
+          <div className="brand">
+            <img src="/logo.png" alt="MedWatch logo" />
+            <p className="eyebrow">MedWatch</p>
+          </div>
           <p className="subtitle">
             {user.fullName ? `Olá, ${user.fullName}.` : "Olá!"}
           </p>

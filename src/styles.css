@@ -29,6 +29,21 @@ textarea {
   align-items: center;
 }
 
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.brand img {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 6px;
+}
+
 .eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.3em;
