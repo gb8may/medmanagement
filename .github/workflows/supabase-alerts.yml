@@ -9,6 +9,8 @@ jobs:
   send-alerts:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
       - name: Run scheduled alerts
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
