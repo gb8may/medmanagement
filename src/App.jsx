@@ -25,6 +25,7 @@ const defaultUser = {
   fullName: "",
   email: "",
   phone: "",
+  password: "",
 };
 
 const defaultUserState = {
@@ -34,7 +35,9 @@ const defaultUserState = {
   phone: "",
 };
 
-const toDbUser = (user) => ({
+const toDbUser = (user, userId, username) => ({
+  id: userId,
+  username,
   full_name: user.fullName,
   email: user.email,
   phone: user.phone,
@@ -42,10 +45,20 @@ const toDbUser = (user) => ({
 
 const fromDbUser = (row) => ({
   id: row.id,
+  username: row.username ?? "",
   fullName: row.full_name ?? "",
   email: row.email ?? "",
   phone: row.phone ?? "",
 });
+
+const normalizeUsername = (value) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toLowerCase();
+
+const buildAuthEmail = (username) => `${username}@medwatch.local`;
 
 const toDbMed = (med, userId) => ({
   user_id: userId,
@@ -229,6 +242,8 @@ export default function App() {
   );
   const [isLoadingMeds, setIsLoadingMeds] = useState(false);
   const [cloudError, setCloudError] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
 
   const hasProfile = Boolean(user.id);
   const cloudEnabled = Boolean(isSupabaseConfigured && supabase);
@@ -259,20 +274,23 @@ export default function App() {
       }
     }
 
-    const savedUser = localStorage.getItem(USER_KEY);
-    if (savedUser) {
-      try {
-        const parsed = JSON.parse(savedUser);
-        setUser(parsed);
-        setUserForm({
-          fullName: parsed.fullName || "",
-          email: parsed.email || "",
-          phone: parsed.phone || "",
-        });
-        setShowProfileForm(!parsed.id);
-      } catch {
-        setUser(defaultUserState);
-        setUserForm(defaultUser);
+    if (!cloudEnabled) {
+      const savedUser = localStorage.getItem(USER_KEY);
+      if (savedUser) {
+        try {
+          const parsed = JSON.parse(savedUser);
+          setUser(parsed);
+          setUserForm({
+            fullName: parsed.fullName || "",
+            email: parsed.email || "",
+            phone: parsed.phone || "",
+            password: "",
+          });
+          setShowProfileForm(!parsed.id);
+        } catch {
+          setUser(defaultUserState);
+          setUserForm(defaultUser);
+        }
       }
     }
   }, [cloudEnabled]);
@@ -289,26 +307,71 @@ export default function App() {
   }, [notificationsEnabled, whatsappEnabled, phoneNumber]);
 
   useEffect(() => {
-    localStorage.setItem(USER_KEY, JSON.stringify(user));
-  }, [user]);
+    if (!cloudEnabled) {
+      localStorage.setItem(USER_KEY, JSON.stringify(user));
+    }
+  }, [cloudEnabled, user]);
+
+  useEffect(() => {
+    if (!cloudEnabled) return;
+
+    const initSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data.session?.user) {
+        setUser((prev) => ({ ...prev, id: data.session.user.id }));
+        setUserForm((prev) => ({
+          ...prev,
+          email: data.session.user.email || prev.email,
+        }));
+        setShowProfileForm(false);
+      }
+    };
+
+    initSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (session?.user) {
+          setUser((prev) => ({ ...prev, id: session.user.id }));
+          setUserForm((prev) => ({
+            ...prev,
+            email: session.user.email || prev.email,
+          }));
+        } else {
+          setUser(defaultUserState);
+          setMeds([]);
+          setShowProfileForm(true);
+        }
+      }
+    );
+
+    return () => {
+      authListener?.subscription?.unsubscribe();
+    };
+  }, [cloudEnabled]);
 
   useEffect(() => {
     const loadUserFromCloud = async () => {
       if (!cloudEnabled || !user.id) return;
       try {
         const { data, error } = await supabase
-          .from("users")
+          .from("profiles")
           .select("*")
           .eq("id", user.id)
-          .single();
+          .maybeSingle();
 
         if (error) throw error;
+        if (!data) {
+          setShowProfileForm(true);
+          return;
+        }
         const updatedUser = fromDbUser(data);
         setUser(updatedUser);
         setUserForm({
           fullName: updatedUser.fullName,
           email: updatedUser.email,
           phone: updatedUser.phone,
+          password: "",
         });
         if (!phoneNumber && updatedUser.phone) {
           setPhoneNumber(updatedUser.phone);
@@ -434,40 +497,84 @@ export default function App() {
       email: userForm.email.trim(),
       phone: userForm.phone.trim(),
     };
+    const password = userForm.password.trim();
+    if (!trimmedUser.fullName || !password) {
+      setAuthError("Informe nome e senha para continuar.");
+      return;
+    }
+    const username = normalizeUsername(trimmedUser.fullName);
+    if (!username) {
+      setAuthError("Informe um nome válido para login.");
+      return;
+    }
+    const authEmail = buildAuthEmail(username);
 
     if (cloudEnabled) {
+      setAuthLoading(true);
       try {
-        if (user.id) {
-          const { data, error } = await supabase
-            .from("users")
-            .update(toDbUser(trimmedUser))
-            .eq("id", user.id)
-            .select()
-            .single();
-          if (error) throw error;
-          setUser(fromDbUser(data));
-        } else {
-          const { data, error } = await supabase
-            .from("users")
-            .insert(toDbUser(trimmedUser))
-            .select()
-            .single();
-          if (error) throw error;
-          setUser(fromDbUser(data));
+        let authUserId = user.id;
+        if (!authUserId) {
+          const { data: signInData, error: signInError } =
+            await supabase.auth.signInWithPassword({
+              email: authEmail,
+              password,
+            });
+          if (signInError) {
+            const { data: signUpData, error: signUpError } =
+              await supabase.auth.signUp({
+                email: authEmail,
+                password,
+              });
+            if (signUpError) throw signUpError;
+            authUserId = signUpData.user?.id;
+          } else {
+            authUserId = signInData.user?.id;
+          }
         }
+
+        if (!authUserId) {
+          throw new Error("Auth user not available");
+        }
+
+        const { data, error } = await supabase
+          .from("profiles")
+          .upsert(toDbUser(trimmedUser, authUserId, username))
+          .select()
+          .single();
+        if (error) throw error;
+        setUser(fromDbUser(data));
         setCloudError("");
+        setAuthError("");
+        setUserForm((prev) => ({ ...prev, password: "" }));
         setShowProfileForm(false);
       } catch {
-        setCloudError("Não foi possível salvar o perfil no banco compartilhado.");
+        setCloudError("Não foi possível salvar ou autenticar o perfil.");
       }
     } else {
       setUser({ id: user.id || "local-user", ...trimmedUser });
+      setAuthError("");
+      setUserForm((prev) => ({ ...prev, password: "" }));
       setShowProfileForm(false);
     }
+    setAuthLoading(false);
 
     if (!phoneNumber && trimmedUser.phone) {
       setPhoneNumber(trimmedUser.phone);
     }
+  };
+
+  const handleSwitchUser = () => {
+    if (cloudEnabled) {
+      supabase.auth.signOut();
+    }
+    setUser(defaultUserState);
+    setUserForm(defaultUser);
+    setMeds([]);
+    setPhoneNumber("");
+    setShowProfileForm(true);
+    setAuthError("");
+    localStorage.removeItem(USER_KEY);
+    localStorage.removeItem(STORAGE_KEY);
   };
 
   const createMedInCloud = async (payload) => {
@@ -618,13 +725,18 @@ export default function App() {
             lembrar quando o estoque estiver acabando.
           </p>
           {hasProfile && !showProfileForm && (
-            <button
-              className="btn ghost"
-              type="button"
-              onClick={() => setShowProfileForm(true)}
-            >
-              Editar perfil
-            </button>
+            <div className="hero-actions">
+              <button
+                className="btn ghost"
+                type="button"
+                onClick={() => setShowProfileForm(true)}
+              >
+                Editar perfil
+              </button>
+              <button className="btn ghost" type="button" onClick={handleSwitchUser}>
+                Trocar usuário
+              </button>
+            </div>
           )}
         </div>
         {hasProfile && !showProfileForm && (
@@ -684,7 +796,7 @@ export default function App() {
                 {whatsappEnabled ? "Desativar WhatsApp" : "Ativar WhatsApp"}
               </button>
               <span className="helper-text">
-                Requer WhatsApp Cloud API configurada no Netlify.
+              Requer Twilio WhatsApp configurado no Netlify.
               </span>
             </div>
           </div>
@@ -708,7 +820,18 @@ export default function App() {
                 />
               </label>
               <label>
-                Email
+                Senha
+                <input
+                  type="password"
+                  placeholder="Digite sua senha"
+                  value={userForm.password}
+                  onChange={(event) =>
+                    handleUserChange("password", event.target.value)
+                  }
+                />
+              </label>
+              <label>
+                Email (opcional)
                 <input
                   type="email"
                   placeholder="exemplo@email.com"
@@ -725,9 +848,10 @@ export default function App() {
                   onChange={(event) => handleUserChange("phone", event.target.value)}
                 />
               </label>
+              {authError && <span className="helper-text">{authError}</span>}
               {cloudError && <span className="helper-text">{cloudError}</span>}
-              <button className="btn primary" type="submit">
-                Salvar perfil
+              <button className="btn primary" type="submit" disabled={authLoading}>
+                {authLoading ? "Entrando..." : "Entrar ou criar perfil"}
               </button>
               {hasProfile && (
                 <button

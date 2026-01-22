@@ -9,13 +9,14 @@ Este projeto já inclui `netlify.toml` com o build e publish corretos.
 3. Publish directory: `dist`
 4. Faça o deploy.
 
-## Alertas por WhatsApp (Cloud API)
+## Alertas por WhatsApp (Twilio)
 
 O envio de mensagens usa uma Function do Netlify (`/.netlify/functions/send-whatsapp`).
-Configure as variáveis de ambiente no painel do Netlify (WhatsApp Cloud API):
+Configure as variáveis de ambiente no painel do Netlify (Twilio):
 
-- `WHATSAPP_ACCESS_TOKEN`
-- `WHATSAPP_PHONE_NUMBER_ID`
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_WHATSAPP_FROM` (ex: `whatsapp:+14155238886`)
 
 No app, informe seu telefone com DDI (ex: `+5511999999999`) e ative o WhatsApp.
 

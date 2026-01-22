@@ -1,3 +1,5 @@
+import twilio from "twilio";
+
 const jsonResponse = (statusCode, payload) => ({
   statusCode,
   headers: {
@@ -11,11 +13,12 @@ export const handler = async (event) => {
     return jsonResponse(405, { error: "Method not allowed" });
   }
 
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const fromNumber = process.env.TWILIO_WHATSAPP_FROM;
 
-  if (!accessToken || !phoneNumberId) {
-    return jsonResponse(500, { error: "WhatsApp não configurado." });
+  if (!accountSid || !authToken || !fromNumber) {
+    return jsonResponse(500, { error: "Twilio WhatsApp não configurado." });
   }
 
   let payload = {};
@@ -31,29 +34,19 @@ export const handler = async (event) => {
   }
 
   try {
-    const response = await fetch(
-      `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          to,
-          type: "text",
-          text: { body: message },
-        }),
-      }
-    );
+    const client = twilio(accountSid, authToken);
+    const toNumber = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
+    const fromValue = fromNumber.startsWith("whatsapp:")
+      ? fromNumber
+      : `whatsapp:${fromNumber}`;
 
-    if (!response.ok) {
-      return jsonResponse(500, { error: "Falha ao enviar WhatsApp." });
-    }
+    const result = await client.messages.create({
+      body: message,
+      from: fromValue,
+      to: toNumber,
+    });
 
-    const data = await response.json();
-    return jsonResponse(200, { result: data });
+    return jsonResponse(200, { sid: result.sid });
   } catch (error) {
     return jsonResponse(500, { error: "Falha ao enviar WhatsApp." });
   }
