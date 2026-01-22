@@ -288,6 +288,7 @@ const computeWhatsappQueue = (meds, dueAlerts, now) => {
 export default function App() {
   const [meds, setMeds] = useState(sampleMeds);
   const [form, setForm] = useState(defaultForm);
+  const [editingMedId, setEditingMedId] = useState(null);
   const [user, setUser] = useState(defaultUserState);
   const [userForm, setUserForm] = useState(defaultUser);
   const [showProfileForm, setShowProfileForm] = useState(true);
@@ -877,9 +878,17 @@ export default function App() {
     };
 
     try {
-      const savedMed = await createMedInCloud(newMed);
-      setMeds((prev) => [savedMed, ...prev]);
+      if (editingMedId) {
+        await updateMedInCloud(editingMedId, newMed);
+        setMeds((prev) =>
+          prev.map((med) => (med.id === editingMedId ? { ...newMed, id: editingMedId } : med))
+        );
+      } else {
+        const savedMed = await createMedInCloud(newMed);
+        setMeds((prev) => [savedMed, ...prev]);
+      }
       setForm(defaultForm);
+      setEditingMedId(null);
       setCloudError("");
     } catch {
       setCloudError("Não foi possível salvar a medicação no banco compartilhado.");
@@ -926,6 +935,27 @@ export default function App() {
     } catch {
       setCloudError("Não foi possível remover a medicação no banco compartilhado.");
     }
+  };
+
+  const handleEditMed = (med) => {
+    setEditingMedId(med.id);
+    setForm({
+      name: med.name,
+      dosage: med.dosage,
+      unit: med.unit,
+      doseAmount: med.doseAmount,
+      stock: med.stock,
+      lowThreshold: med.lowThreshold,
+      scheduleTimes: med.scheduleTimes.length ? med.scheduleTimes : ["08:00"],
+      alertsEnabled: med.alertsEnabled,
+      autoDeduct: med.autoDeduct,
+      notes: med.notes,
+    });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMedId(null);
+    setForm(defaultForm);
   };
 
 
@@ -1106,7 +1136,7 @@ export default function App() {
         <>
           <section className="grid">
             <div className="card">
-              <h2>Nova medicação</h2>
+              <h2>{editingMedId ? "Editar medicação" : "Nova medicação"}</h2>
               <form className="form" onSubmit={handleCreateMed}>
             <label>
               Nome
@@ -1228,9 +1258,16 @@ export default function App() {
                 onChange={(event) => handleFormChange("notes", event.target.value)}
               />
             </label>
-            <button className="btn primary" type="submit">
-              Salvar medicação
-            </button>
+            <div className="med-actions">
+              <button className="btn primary" type="submit">
+                {editingMedId ? "Salvar alterações" : "Salvar medicação"}
+              </button>
+              {editingMedId && (
+                <button className="btn ghost" type="button" onClick={handleCancelEdit}>
+                  Cancelar edição
+                </button>
+              )}
+            </div>
           </form>
             </div>
 
@@ -1348,6 +1385,12 @@ export default function App() {
                         onClick={() => handleRegisterDose(med.id)}
                       >
                         Registrar dose
+                      </button>
+                      <button
+                        className="btn secondary"
+                        onClick={() => handleEditMed(med)}
+                      >
+                        Editar
                       </button>
                       <button
                         className={`btn ${
