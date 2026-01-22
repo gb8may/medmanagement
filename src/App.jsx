@@ -82,6 +82,12 @@ const resolveTimezoneSelection = (storedTimezone) => {
   return storedTimezone;
 };
 
+const buildEmptyProfile = (fullName, timezoneSelection) => ({
+  fullName,
+  phoneNumbers: ["", "", "", ""],
+  timezone: resolveTimezoneValue(timezoneSelection || "device"),
+});
+
 const toDbMed = (med, userId) => ({
   user_id: userId,
   name: med.name,
@@ -585,8 +591,61 @@ export default function App() {
     });
   };
 
-  const handleTimezoneChange = (value) => {
+  const handleTimezoneChange = async (value) => {
     setUserForm((prev) => ({ ...prev, timezone: value }));
+    setUser((prev) => ({ ...prev, timezone: value }));
+
+    if (!cloudEnabled || !user.id) return;
+    try {
+      const username = user.username || normalizeUsername(user.fullName);
+      await supabase
+        .from("profiles")
+        .update(
+          toDbUser(
+            {
+              fullName: user.fullName,
+              phoneNumbers,
+              timezone: value,
+            },
+            user.id,
+            username,
+            whatsappEnabled,
+            resolveTimezoneValue(value)
+          )
+        )
+        .eq("id", user.id);
+    } catch {
+      setCloudError("Não foi possível atualizar o timezone.");
+    }
+  };
+
+  const ensureProfile = async (authUserId, username, fullName) => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", authUserId)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) {
+      return fromDbUser(data);
+    }
+
+    const emptyProfile = buildEmptyProfile(fullName, userForm.timezone);
+    const { data: created, error: createError } = await supabase
+      .from("profiles")
+      .insert(
+        toDbUser(
+          emptyProfile,
+          authUserId,
+          username,
+          true,
+          emptyProfile.timezone
+        )
+      )
+      .select()
+      .single();
+    if (createError) throw createError;
+    return fromDbUser(created);
   };
 
   const handleLogin = async (event) => {
@@ -612,12 +671,14 @@ export default function App() {
           password,
         });
         if (error) {
-          setAuthError("Usuario ou senha invalidos.");
+          setAuthError("Usuario nao encontrado. Crie uma conta.");
           return;
         }
         if (!data.user?.id) {
           throw new Error("Auth user not available");
         }
+        const profile = await ensureProfile(data.user.id, username, fullName);
+        setUser(profile);
         setAuthError("");
         setUserForm((prev) => ({ ...prev, password: "" }));
         setShowProfileForm(false);
@@ -665,31 +726,16 @@ export default function App() {
           setAuthError("Usuario ja existe ou senha invalida.");
           return;
         }
-        const authUserId = signUpData.user?.id;
+        const signInResult = await supabase.auth.signInWithPassword({
+          email: authEmail,
+          password,
+        });
+        const authUserId = signInResult.data.user?.id ?? signUpData.user?.id;
         if (!authUserId) {
           throw new Error("Auth user not available");
         }
-        const trimmedUser = {
-          fullName,
-          phoneNumbers: ["", "", "", ""],
-          timezone: resolveTimezoneValue(userForm.timezone || "device"),
-        };
-        const whatsappEnabledValue = true;
-        const { data, error } = await supabase
-          .from("profiles")
-          .upsert(
-            toDbUser(
-              trimmedUser,
-              authUserId,
-              username,
-              whatsappEnabledValue,
-              trimmedUser.timezone
-            )
-          )
-          .select()
-          .single();
-        if (error) throw error;
-        setUser(fromDbUser(data));
+        const profile = await ensureProfile(authUserId, username, fullName);
+        setUser(profile);
         setAuthError("");
         setUserForm((prev) => ({ ...prev, password: "" }));
         setShowProfileForm(true);
@@ -1109,21 +1155,6 @@ export default function App() {
                   Adicione ate 4 numeros para receber alertas.
                 </span>
               </div>
-              <div className="times">
-                <span>Timezone</span>
-                {timezoneOptions.map((option) => (
-                  <label className="toggle" key={option.value}>
-                    <input
-                      type="radio"
-                      name="timezone"
-                      value={option.value}
-                      checked={userForm.timezone === option.value}
-                      onChange={(event) => handleTimezoneChange(event.target.value)}
-                    />
-                    {option.label}
-                  </label>
-                ))}
-              </div>
               {authError && <span className="helper-text">{authError}</span>}
               {cloudError && <span className="helper-text">{cloudError}</span>}
               <button className="btn primary" type="submit" disabled={authLoading}>
@@ -1228,6 +1259,21 @@ export default function App() {
               <button className="btn ghost" type="button" onClick={handleAddTime}>
                 + Adicionar horário
               </button>
+            </div>
+            <div className="times">
+              <span>Timezone dos alertas</span>
+              {timezoneOptions.map((option) => (
+                <label className="toggle" key={option.value}>
+                  <input
+                    type="radio"
+                    name="timezone"
+                    value={option.value}
+                    checked={userForm.timezone === option.value}
+                    onChange={(event) => handleTimezoneChange(event.target.value)}
+                  />
+                  {option.label}
+                </label>
+              ))}
             </div>
             <label className="toggle">
               <input
