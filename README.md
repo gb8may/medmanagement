@@ -20,6 +20,39 @@ Configure as variáveis de ambiente no painel do Netlify (Twilio):
 
 No app, informe seu telefone com DDI (ex: `+5511999999999`) e ative o WhatsApp.
 
+## Alertas em background (Supabase Edge Function)
+
+Para enviar alertas mesmo com o navegador fechado, use a Edge Function do Supabase.
+
+### Variáveis de ambiente (Supabase)
+
+- `SERVICE_ROLE_KEY`
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_WHATSAPP_FROM` (ex: `whatsapp:+14155238886`)
+
+### Deploy da Function
+
+```
+supabase functions deploy send-alerts
+```
+
+Depois, no painel do Supabase, crie um **Scheduled Function** para rodar
+`send-alerts` a cada minuto.
+
+### Ajustes no banco (Supabase)
+
+```sql
+alter table public.profiles
+  add column if not exists phone_numbers text[],
+  add column if not exists whatsapp_enabled boolean default true,
+  add column if not exists timezone text default 'UTC';
+
+alter table public.meds
+  add column if not exists auto_deduct boolean default false,
+  add column if not exists last_auto_dose_key text;
+```
+
 ### Desenvolvimento local
 
 Para testar WhatsApp localmente, use o Netlify CLI:

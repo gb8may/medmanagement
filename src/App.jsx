@@ -18,6 +18,7 @@ const defaultForm = {
   lowThreshold: 5,
   scheduleTimes: ["08:00"],
   alertsEnabled: true,
+  autoDeduct: false,
   notes: "",
 };
 
@@ -26,6 +27,7 @@ const defaultUser = {
   email: "",
   phoneNumbers: ["", "", ""],
   password: "",
+  timezone: "UTC",
 };
 
 const defaultUserState = {
@@ -33,14 +35,18 @@ const defaultUserState = {
   fullName: "",
   email: "",
   phoneNumbers: ["", "", ""],
+  timezone: "UTC",
+  whatsappEnabled: true,
 };
 
-const toDbUser = (user, userId, username) => ({
+const toDbUser = (user, userId, username, whatsappEnabled, timezone) => ({
   id: userId,
   username,
   full_name: user.fullName,
   email: user.email,
   phone_numbers: user.phoneNumbers,
+  whatsapp_enabled: whatsappEnabled,
+  timezone,
 });
 
 const fromDbUser = (row) => ({
@@ -49,6 +55,8 @@ const fromDbUser = (row) => ({
   fullName: row.full_name ?? "",
   email: row.email ?? "",
   phoneNumbers: row.phone_numbers ?? ["", "", ""],
+  whatsappEnabled: row.whatsapp_enabled ?? true,
+  timezone: row.timezone ?? "UTC",
 });
 
 const normalizeUsername = (value) =>
@@ -70,9 +78,11 @@ const toDbMed = (med, userId) => ({
   low_threshold: med.lowThreshold,
   schedule_times: med.scheduleTimes,
   alerts_enabled: med.alertsEnabled,
+  auto_deduct: med.autoDeduct,
   notes: med.notes,
   last_taken: med.lastTaken,
   last_alert_key: med.lastAlertKey,
+  last_auto_dose_key: med.lastAutoDoseKey,
   last_whatsapp_alert_key: med.lastWhatsappAlertKey,
   last_low_stock_whatsapp_date: med.lastLowStockWhatsappDate,
 });
@@ -87,9 +97,11 @@ const fromDbMed = (row) => ({
   lowThreshold: row.low_threshold ?? 0,
   scheduleTimes: row.schedule_times ?? [],
   alertsEnabled: row.alerts_enabled ?? true,
+  autoDeduct: row.auto_deduct ?? false,
   notes: row.notes ?? "",
   lastTaken: row.last_taken ?? null,
   lastAlertKey: row.last_alert_key ?? null,
+  lastAutoDoseKey: row.last_auto_dose_key ?? null,
   lastWhatsappAlertKey: row.last_whatsapp_alert_key ?? null,
   lastLowStockWhatsappDate: row.last_low_stock_whatsapp_date ?? null,
 });
@@ -170,6 +182,53 @@ const computeAlerts = (meds, now) => {
     dueAlerts,
     updatedMeds: changed ? updatedMeds : null,
   };
+};
+
+const applyAutoDoses = (meds, dueAlerts, now) => {
+  if (!dueAlerts.length) {
+    return { updatedMeds: null, changedIds: [] };
+  }
+  const alertsByMed = dueAlerts.reduce((acc, alert) => {
+    if (!acc[alert.medId]) {
+      acc[alert.medId] = [];
+    }
+    acc[alert.medId].push(alert);
+    return acc;
+  }, {});
+
+  const updatedMeds = meds.map((med) => {
+    if (!med.autoDeduct) return med;
+    const alerts = alertsByMed[med.id] || [];
+    if (!alerts.length) return med;
+
+    let lastAutoDoseKey = med.lastAutoDoseKey ?? null;
+    let stock = med.stock;
+    let lastTaken = med.lastTaken;
+
+    alerts.forEach((alert) => {
+      if (alert.alertKey && alert.alertKey !== lastAutoDoseKey) {
+        stock = Math.max(0, stock - med.doseAmount);
+        lastTaken = now.toISOString();
+        lastAutoDoseKey = alert.alertKey;
+      }
+    });
+
+    if (
+      lastAutoDoseKey !== med.lastAutoDoseKey ||
+      stock !== med.stock ||
+      lastTaken !== med.lastTaken
+    ) {
+      return { ...med, stock, lastTaken, lastAutoDoseKey };
+    }
+
+    return med;
+  });
+
+  const changedIds = updatedMeds
+    .filter((med, index) => med !== meds[index])
+    .map((med) => med.id);
+
+  return { updatedMeds, changedIds };
 };
 
 const buildDoseWhatsApp = (alert) =>
@@ -283,6 +342,7 @@ export default function App() {
             email: parsed.email || "",
             phoneNumbers: parsed.phoneNumbers || ["", "", ""],
             password: "",
+            timezone: parsed.timezone || "UTC",
           });
           setShowProfileForm(!parsed.id);
         } catch {
@@ -370,8 +430,10 @@ export default function App() {
           email: updatedUser.email,
           phoneNumbers: updatedUser.phoneNumbers,
           password: "",
+          timezone: updatedUser.timezone || "UTC",
         });
         setPhoneNumbers(updatedUser.phoneNumbers ?? ["", "", ""]);
+        setWhatsappEnabled(updatedUser.whatsappEnabled ?? true);
       } catch {
         setCloudError("Não foi possível carregar o perfil compartilhado.");
       }
@@ -426,8 +488,32 @@ export default function App() {
       });
     }
 
+    if (dueAlerts.length) {
+      const { updatedMeds: autoUpdatedMeds, changedIds } = applyAutoDoses(
+        baseMeds,
+        dueAlerts,
+        now
+      );
+      if (autoUpdatedMeds) {
+        setMeds(autoUpdatedMeds);
+        if (cloudEnabled && changedIds.length) {
+          changedIds.forEach((medId) => {
+            const updated = autoUpdatedMeds.find((med) => med.id === medId);
+            if (!updated) return;
+            updateMedInCloud(medId, updated).catch(() => {
+              setCloudError("Não foi possível atualizar doses automáticas.");
+            });
+          });
+        }
+      } else if (updatedMeds) {
+        setMeds(updatedMeds);
+      }
+    } else if (updatedMeds) {
+      setMeds(updatedMeds);
+    }
+
     const activePhoneNumbers = phoneNumbers.filter((value) => value.trim());
-    if (whatsappEnabled && activePhoneNumbers.length) {
+    if (!cloudEnabled && whatsappEnabled && activePhoneNumbers.length) {
       const { queue, updatedMeds: whatsappUpdatedMeds } = computeWhatsappQueue(
         baseMeds,
         dueAlerts,
@@ -464,10 +550,6 @@ export default function App() {
         sendQueue();
       }
       return;
-    }
-
-    if (updatedMeds) {
-      setMeds(updatedMeds);
     }
   }, [
     meds,
@@ -578,10 +660,20 @@ export default function App() {
           fullName,
           email: "",
           phoneNumbers: ["", "", ""],
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
         };
+        const whatsappEnabledValue = true;
         const { data, error } = await supabase
           .from("profiles")
-          .upsert(toDbUser(trimmedUser, authUserId, username))
+          .upsert(
+            toDbUser(
+              trimmedUser,
+              authUserId,
+              username,
+              whatsappEnabledValue,
+              trimmedUser.timezone
+            )
+          )
           .select()
           .single();
         if (error) throw error;
@@ -597,7 +689,14 @@ export default function App() {
       return;
     }
 
-    setUser({ id: "local-user", fullName, email: "", phoneNumbers: ["", "", ""] });
+    setUser({
+      id: "local-user",
+      fullName,
+      email: "",
+      phoneNumbers: ["", "", ""],
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+      whatsappEnabled: true,
+    });
     setAuthError("");
     setUserForm((prev) => ({ ...prev, password: "" }));
     setShowProfileForm(true);
@@ -609,6 +708,7 @@ export default function App() {
       fullName: userForm.fullName.trim(),
       email: userForm.email.trim(),
       phoneNumbers: userForm.phoneNumbers.map((phone) => phone.trim()),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
     };
     if (!trimmedUser.fullName) {
       setAuthError("Informe o nome completo.");
@@ -621,7 +721,15 @@ export default function App() {
         const username = user.username || normalizeUsername(trimmedUser.fullName);
         const { data, error } = await supabase
           .from("profiles")
-          .update(toDbUser(trimmedUser, user.id, username))
+          .update(
+            toDbUser(
+              trimmedUser,
+              user.id,
+              username,
+              whatsappEnabled,
+              trimmedUser.timezone
+            )
+          )
           .eq("id", user.id)
           .select()
           .single();
@@ -636,12 +744,46 @@ export default function App() {
         setAuthLoading(false);
       }
     } else {
-      setUser({ ...user, ...trimmedUser });
+      setUser({
+        ...user,
+        ...trimmedUser,
+        whatsappEnabled,
+        timezone: trimmedUser.timezone,
+      });
       setAuthError("");
       setShowProfileForm(false);
     }
 
     setPhoneNumbers(trimmedUser.phoneNumbers);
+  };
+
+  const handleToggleWhatsapp = async () => {
+    const nextValue = !whatsappEnabled;
+    setWhatsappEnabled(nextValue);
+
+    if (!cloudEnabled || !user.id) return;
+    try {
+      const username = user.username || normalizeUsername(user.fullName);
+      await supabase
+        .from("profiles")
+        .update(
+          toDbUser(
+            {
+              fullName: user.fullName,
+              email: user.email,
+              phoneNumbers,
+              timezone: user.timezone || "UTC",
+            },
+            user.id,
+            username,
+            nextValue,
+            user.timezone || "UTC"
+          )
+        )
+        .eq("id", user.id);
+    } catch {
+      setCloudError("Não foi possível atualizar o WhatsApp.");
+    }
   };
 
   const handleSwitchUser = () => {
@@ -720,9 +862,11 @@ export default function App() {
       lowThreshold: toNumber(form.lowThreshold, 0),
       scheduleTimes: form.scheduleTimes.filter(Boolean),
       alertsEnabled: form.alertsEnabled,
+      autoDeduct: form.autoDeduct,
       notes: form.notes.trim(),
       lastTaken: null,
       lastAlertKey: null,
+      lastAutoDoseKey: null,
       lastWhatsappAlertKey: null,
       lastLowStockWhatsappDate: null,
     };
@@ -849,7 +993,7 @@ export default function App() {
               <button
                 className="btn secondary"
                 type="button"
-                onClick={() => setWhatsappEnabled((prev) => !prev)}
+                onClick={handleToggleWhatsapp}
               >
                 {whatsappEnabled ? "Desativar WhatsApp" : "Ativar WhatsApp"}
               </button>
@@ -1044,7 +1188,7 @@ export default function App() {
             <div className="times">
               <span>Horários</span>
               {form.scheduleTimes.map((time, index) => (
-                <div className="time-row" key={`${time}-${index}`}>
+                <div className="time-row" key={index}>
                   <input
                     type="time"
                     value={time}
@@ -1074,6 +1218,16 @@ export default function App() {
                 }
               />
               Alertas ativos para esta medicação
+            </label>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={form.autoDeduct}
+                onChange={(event) =>
+                  handleFormChange("autoDeduct", event.target.checked)
+                }
+              />
+              Registrar dose automaticamente
             </label>
             <label>
               Observações
