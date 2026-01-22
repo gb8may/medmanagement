@@ -1,44 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
+import { isSupabaseConfigured, supabase } from "./supabase";
 
 const STORAGE_KEY = "medmanager:meds";
 const SETTINGS_KEY = "medmanager:settings";
+const USER_KEY = "medwatch:user";
 const ALERT_WINDOW_MINUTES = 10;
 const WHATSAPP_ENDPOINT = "/.netlify/functions/send-whatsapp";
 
-const sampleMeds = [
-  {
-    id: "med-1",
-    name: "Vitamina D",
-    dosage: "2.000",
-    unit: "UI",
-    doseAmount: 1,
-    stock: 18,
-    lowThreshold: 7,
-    scheduleTimes: ["08:00"],
-    alertsEnabled: true,
-    notes: "Tomar após o café da manhã.",
-    lastTaken: null,
-    lastAlertKey: null,
-    lastWhatsappAlertKey: null,
-    lastLowStockWhatsappDate: null,
-  },
-  {
-    id: "med-2",
-    name: "Losartana",
-    dosage: "50",
-    unit: "mg",
-    doseAmount: 1,
-    stock: 6,
-    lowThreshold: 10,
-    scheduleTimes: ["08:00", "20:00"],
-    alertsEnabled: true,
-    notes: "Monitorar pressão arterial.",
-    lastTaken: null,
-    lastAlertKey: null,
-    lastWhatsappAlertKey: null,
-    lastLowStockWhatsappDate: null,
-  },
-];
+const sampleMeds = [];
 
 const defaultForm = {
   name: "",
@@ -51,6 +20,66 @@ const defaultForm = {
   alertsEnabled: true,
   notes: "",
 };
+
+const defaultUser = {
+  fullName: "",
+  email: "",
+  phone: "",
+};
+
+const defaultUserState = {
+  id: "",
+  fullName: "",
+  email: "",
+  phone: "",
+};
+
+const toDbUser = (user) => ({
+  full_name: user.fullName,
+  email: user.email,
+  phone: user.phone,
+});
+
+const fromDbUser = (row) => ({
+  id: row.id,
+  fullName: row.full_name ?? "",
+  email: row.email ?? "",
+  phone: row.phone ?? "",
+});
+
+const toDbMed = (med, userId) => ({
+  user_id: userId,
+  name: med.name,
+  dosage: med.dosage,
+  unit: med.unit,
+  dose_amount: med.doseAmount,
+  stock: med.stock,
+  low_threshold: med.lowThreshold,
+  schedule_times: med.scheduleTimes,
+  alerts_enabled: med.alertsEnabled,
+  notes: med.notes,
+  last_taken: med.lastTaken,
+  last_alert_key: med.lastAlertKey,
+  last_whatsapp_alert_key: med.lastWhatsappAlertKey,
+  last_low_stock_whatsapp_date: med.lastLowStockWhatsappDate,
+});
+
+const fromDbMed = (row) => ({
+  id: row.id,
+  name: row.name ?? "",
+  dosage: row.dosage ?? "",
+  unit: row.unit ?? "mg",
+  doseAmount: row.dose_amount ?? 1,
+  stock: row.stock ?? 0,
+  lowThreshold: row.low_threshold ?? 0,
+  scheduleTimes: row.schedule_times ?? [],
+  alertsEnabled: row.alerts_enabled ?? true,
+  notes: row.notes ?? "",
+  lastTaken: row.last_taken ?? null,
+  lastAlertKey: row.last_alert_key ?? null,
+  lastWhatsappAlertKey: row.last_whatsapp_alert_key ?? null,
+  lastLowStockWhatsappDate: row.last_low_stock_whatsapp_date ?? null,
+});
 
 const formatDateTime = (value) => {
   if (!value) return "Ainda não registrado";
@@ -187,6 +216,9 @@ const computeWhatsappQueue = (meds, dueAlerts, now) => {
 export default function App() {
   const [meds, setMeds] = useState(sampleMeds);
   const [form, setForm] = useState(defaultForm);
+  const [user, setUser] = useState(defaultUserState);
+  const [userForm, setUserForm] = useState(defaultUser);
+  const [showProfileForm, setShowProfileForm] = useState(true);
   const [alerts, setAlerts] = useState([]);
   const [tick, setTick] = useState(Date.now());
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
@@ -195,12 +227,17 @@ export default function App() {
   const [notificationStatus, setNotificationStatus] = useState(
     typeof Notification === "undefined" ? "unsupported" : Notification.permission
   );
+  const [isLoadingMeds, setIsLoadingMeds] = useState(false);
+  const [cloudError, setCloudError] = useState("");
+
+  const hasProfile = Boolean(user.id);
+  const cloudEnabled = Boolean(isSupabaseConfigured && supabase);
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     const settings = localStorage.getItem(SETTINGS_KEY);
 
-    if (saved) {
+    if (saved && !cloudEnabled) {
       try {
         const parsed = JSON.parse(saved);
         setMeds(parsed);
@@ -221,7 +258,24 @@ export default function App() {
         setPhoneNumber("");
       }
     }
-  }, []);
+
+    const savedUser = localStorage.getItem(USER_KEY);
+    if (savedUser) {
+      try {
+        const parsed = JSON.parse(savedUser);
+        setUser(parsed);
+        setUserForm({
+          fullName: parsed.fullName || "",
+          email: parsed.email || "",
+          phone: parsed.phone || "",
+        });
+        setShowProfileForm(!parsed.id);
+      } catch {
+        setUser(defaultUserState);
+        setUserForm(defaultUser);
+      }
+    }
+  }, [cloudEnabled]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(meds));
@@ -233,6 +287,63 @@ export default function App() {
       JSON.stringify({ notificationsEnabled, whatsappEnabled, phoneNumber })
     );
   }, [notificationsEnabled, whatsappEnabled, phoneNumber]);
+
+  useEffect(() => {
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+  }, [user]);
+
+  useEffect(() => {
+    const loadUserFromCloud = async () => {
+      if (!cloudEnabled || !user.id) return;
+      try {
+        const { data, error } = await supabase
+          .from("users")
+          .select("*")
+          .eq("id", user.id)
+          .single();
+
+        if (error) throw error;
+        const updatedUser = fromDbUser(data);
+        setUser(updatedUser);
+        setUserForm({
+          fullName: updatedUser.fullName,
+          email: updatedUser.email,
+          phone: updatedUser.phone,
+        });
+        if (!phoneNumber && updatedUser.phone) {
+          setPhoneNumber(updatedUser.phone);
+        }
+      } catch {
+        setCloudError("Não foi possível carregar o perfil compartilhado.");
+      }
+    };
+
+    loadUserFromCloud();
+  }, [cloudEnabled, user.id, phoneNumber]);
+
+  useEffect(() => {
+    const loadMedsFromCloud = async () => {
+      if (!cloudEnabled || !user.id) return;
+      setIsLoadingMeds(true);
+      try {
+        const { data, error } = await supabase
+          .from("meds")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false });
+
+        if (error) throw error;
+        setMeds(data.map(fromDbMed));
+        setCloudError("");
+      } catch {
+        setCloudError("Não foi possível carregar as medicações compartilhadas.");
+      } finally {
+        setIsLoadingMeds(false);
+      }
+    };
+
+    loadMedsFromCloud();
+  }, [cloudEnabled, user.id]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -312,6 +423,79 @@ export default function App() {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  const handleUserChange = (field, value) => {
+    setUserForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSaveUser = async (event) => {
+    event.preventDefault();
+    const trimmedUser = {
+      fullName: userForm.fullName.trim(),
+      email: userForm.email.trim(),
+      phone: userForm.phone.trim(),
+    };
+
+    if (cloudEnabled) {
+      try {
+        if (user.id) {
+          const { data, error } = await supabase
+            .from("users")
+            .update(toDbUser(trimmedUser))
+            .eq("id", user.id)
+            .select()
+            .single();
+          if (error) throw error;
+          setUser(fromDbUser(data));
+        } else {
+          const { data, error } = await supabase
+            .from("users")
+            .insert(toDbUser(trimmedUser))
+            .select()
+            .single();
+          if (error) throw error;
+          setUser(fromDbUser(data));
+        }
+        setCloudError("");
+        setShowProfileForm(false);
+      } catch {
+        setCloudError("Não foi possível salvar o perfil no banco compartilhado.");
+      }
+    } else {
+      setUser({ id: user.id || "local-user", ...trimmedUser });
+      setShowProfileForm(false);
+    }
+
+    if (!phoneNumber && trimmedUser.phone) {
+      setPhoneNumber(trimmedUser.phone);
+    }
+  };
+
+  const createMedInCloud = async (payload) => {
+    if (!cloudEnabled || !user.id) return payload;
+    const { data, error } = await supabase
+      .from("meds")
+      .insert(toDbMed(payload, user.id))
+      .select()
+      .single();
+    if (error) throw error;
+    return fromDbMed(data);
+  };
+
+  const updateMedInCloud = async (medId, payload) => {
+    if (!cloudEnabled || !user.id) return;
+    const { error } = await supabase
+      .from("meds")
+      .update(toDbMed({ ...payload, id: medId }, user.id))
+      .eq("id", medId);
+    if (error) throw error;
+  };
+
+  const deleteMedInCloud = async (medId) => {
+    if (!cloudEnabled || !user.id) return;
+    const { error } = await supabase.from("meds").delete().eq("id", medId);
+    if (error) throw error;
+  };
+
   const handleTimeChange = (index, value) => {
     setForm((prev) => {
       const updated = [...prev.scheduleTimes];
@@ -334,7 +518,7 @@ export default function App() {
     });
   };
 
-  const handleCreateMed = (event) => {
+  const handleCreateMed = async (event) => {
     event.preventDefault();
     if (!form.name.trim()) return;
 
@@ -355,30 +539,56 @@ export default function App() {
       lastLowStockWhatsappDate: null,
     };
 
-    setMeds((prev) => [newMed, ...prev]);
-    setForm(defaultForm);
+    try {
+      const savedMed = await createMedInCloud(newMed);
+      setMeds((prev) => [savedMed, ...prev]);
+      setForm(defaultForm);
+      setCloudError("");
+    } catch {
+      setCloudError("Não foi possível salvar a medicação no banco compartilhado.");
+    }
   };
 
-  const handleToggleAlert = (medId) => {
+  const handleToggleAlert = async (medId) => {
+    const target = meds.find((med) => med.id === medId);
+    if (!target) return;
+    const nextValue = !target.alertsEnabled;
     setMeds((prev) =>
       prev.map((med) =>
-        med.id === medId ? { ...med, alertsEnabled: !med.alertsEnabled } : med
+        med.id === medId ? { ...med, alertsEnabled: nextValue } : med
       )
     );
+    try {
+      await updateMedInCloud(medId, { ...target, alertsEnabled: nextValue });
+    } catch {
+      setCloudError("Não foi possível atualizar os alertas no banco compartilhado.");
+    }
   };
 
-  const handleRegisterDose = (medId) => {
+  const handleRegisterDose = async (medId) => {
+    const target = meds.find((med) => med.id === medId);
+    if (!target) return;
+    const newStock = Math.max(0, target.stock - target.doseAmount);
+    const nextTaken = new Date().toISOString();
     setMeds((prev) =>
-      prev.map((med) => {
-        if (med.id !== medId) return med;
-        const newStock = Math.max(0, med.stock - med.doseAmount);
-        return { ...med, stock: newStock, lastTaken: new Date().toISOString() };
-      })
+      prev.map((med) =>
+        med.id === medId ? { ...med, stock: newStock, lastTaken: nextTaken } : med
+      )
     );
+    try {
+      await updateMedInCloud(medId, { ...target, stock: newStock, lastTaken: nextTaken });
+    } catch {
+      setCloudError("Não foi possível atualizar o estoque no banco compartilhado.");
+    }
   };
 
-  const handleDelete = (medId) => {
+  const handleDelete = async (medId) => {
     setMeds((prev) => prev.filter((med) => med.id !== medId));
+    try {
+      await deleteMedInCloud(medId);
+    } catch {
+      setCloudError("Não foi possível remover a medicação no banco compartilhado.");
+    }
   };
 
   const requestNotifications = async () => {
@@ -398,77 +608,145 @@ export default function App() {
     <div className="app">
       <header className="hero">
         <div>
-          <p className="eyebrow">MedManager</p>
+          <p className="eyebrow">MedWatch</p>
+          <p className="subtitle">
+            {user.fullName ? `Olá, ${user.fullName}.` : "Olá!"}
+          </p>
           <h1>Seu cuidado com medicação, simples e inteligente.</h1>
           <p className="subtitle">
             Cadastre, acompanhe horários e receba alertas. O foco é sempre
             lembrar quando o estoque estiver acabando.
           </p>
-        </div>
-        <div className="hero-card">
-          <h3>Resumo rápido</h3>
-          <div className="hero-metrics">
-            <div>
-              <span className="metric-label">Medicações</span>
-              <strong>{meds.length}</strong>
-            </div>
-            <div>
-              <span className="metric-label">Alertas ativos</span>
-              <strong>{meds.filter((med) => med.alertsEnabled).length}</strong>
-            </div>
-            <div>
-              <span className="metric-label">Estoque baixo</span>
-              <strong>{lowStockMeds.length}</strong>
-            </div>
-          </div>
-          <div className="hero-actions">
+          {hasProfile && !showProfileForm && (
             <button
-              className="btn secondary"
+              className="btn ghost"
               type="button"
-              onClick={() => setNotificationsEnabled((prev) => !prev)}
+              onClick={() => setShowProfileForm(true)}
             >
-              {notificationsEnabled ? "Desativar alertas do app" : "Ativar alertas do app"}
+              Editar perfil
             </button>
-            <button className="btn" type="button" onClick={requestNotifications}>
-              {notificationStatus === "granted"
-                ? "Alertas do navegador ativos"
-                : "Ativar alertas do navegador"}
-            </button>
-            {notificationStatus === "denied" && (
+          )}
+        </div>
+        {hasProfile && !showProfileForm && (
+          <div className="hero-card">
+            <h3>Resumo rápido</h3>
+            <div className="hero-metrics">
+              <div>
+                <span className="metric-label">Medicações</span>
+                <strong>{meds.length}</strong>
+              </div>
+              <div>
+                <span className="metric-label">Alertas ativos</span>
+                <strong>{meds.filter((med) => med.alertsEnabled).length}</strong>
+              </div>
+              <div>
+                <span className="metric-label">Estoque baixo</span>
+                <strong>{lowStockMeds.length}</strong>
+              </div>
+            </div>
+            <div className="hero-actions">
+              <button
+                className="btn secondary"
+                type="button"
+                onClick={() => setNotificationsEnabled((prev) => !prev)}
+              >
+                {notificationsEnabled
+                  ? "Desativar alertas do app"
+                  : "Ativar alertas do app"}
+              </button>
+              <button className="btn" type="button" onClick={requestNotifications}>
+                {notificationStatus === "granted"
+                  ? "Alertas do navegador ativos"
+                  : "Ativar alertas do navegador"}
+              </button>
+              {notificationStatus === "denied" && (
+                <span className="helper-text">
+                  Permissão do navegador negada. Libere nas configurações do site.
+                </span>
+              )}
+            </div>
+            <div className="sms-card">
+              <h4>Alertas por WhatsApp</h4>
+              <label>
+                Telefone (com DDI)
+                <input
+                  type="tel"
+                  placeholder="+5511999999999"
+                  value={phoneNumber}
+                  onChange={(event) => setPhoneNumber(event.target.value)}
+                />
+              </label>
+              <button
+                className="btn secondary"
+                type="button"
+                onClick={() => setWhatsappEnabled((prev) => !prev)}
+              >
+                {whatsappEnabled ? "Desativar WhatsApp" : "Ativar WhatsApp"}
+              </button>
               <span className="helper-text">
-                Permissão do navegador negada. Libere nas configurações do site.
+                Requer WhatsApp Cloud API configurada no Netlify.
               </span>
-            )}
+            </div>
           </div>
-          <div className="sms-card">
-            <h4>Alertas por WhatsApp</h4>
-            <label>
-              Telefone (com DDI)
-              <input
-                type="tel"
-                placeholder="+5511999999999"
-                value={phoneNumber}
-                onChange={(event) => setPhoneNumber(event.target.value)}
-              />
-            </label>
-            <button
-              className="btn secondary"
-              type="button"
-              onClick={() => setWhatsappEnabled((prev) => !prev)}
-            >
-              {whatsappEnabled ? "Desativar WhatsApp" : "Ativar WhatsApp"}
-            </button>
-            <span className="helper-text">
-              Requer WhatsApp Cloud API configurada no Netlify.
-            </span>
-          </div>
-        </div>
+        )}
       </header>
 
-      <section className="grid">
-        <div className="card">
-          <h2>Nova medicação</h2>
-          <form className="form" onSubmit={handleCreateMed}>
+      {!hasProfile || showProfileForm ? (
+        <section className="grid">
+          <div className="card">
+            <h2>Perfil do usuário</h2>
+            <form className="form" onSubmit={handleSaveUser}>
+              <label>
+                Nome completo
+                <input
+                  type="text"
+                  placeholder="Ex: Maria Silva"
+                  value={userForm.fullName}
+                  onChange={(event) =>
+                    handleUserChange("fullName", event.target.value)
+                  }
+                />
+              </label>
+              <label>
+                Email
+                <input
+                  type="email"
+                  placeholder="exemplo@email.com"
+                  value={userForm.email}
+                  onChange={(event) => handleUserChange("email", event.target.value)}
+                />
+              </label>
+              <label>
+                Telefone (WhatsApp)
+                <input
+                  type="tel"
+                  placeholder="+5511999999999"
+                  value={userForm.phone}
+                  onChange={(event) => handleUserChange("phone", event.target.value)}
+                />
+              </label>
+              {cloudError && <span className="helper-text">{cloudError}</span>}
+              <button className="btn primary" type="submit">
+                Salvar perfil
+              </button>
+              {hasProfile && (
+                <button
+                  className="btn ghost"
+                  type="button"
+                  onClick={() => setShowProfileForm(false)}
+                >
+                  Voltar para medicações
+                </button>
+              )}
+            </form>
+          </div>
+        </section>
+      ) : (
+        <>
+          <section className="grid">
+            <div className="card">
+              <h2>Nova medicação</h2>
+              <form className="form" onSubmit={handleCreateMed}>
             <label>
               Nome
               <input
@@ -583,113 +861,147 @@ export default function App() {
               Salvar medicação
             </button>
           </form>
-        </div>
+            </div>
 
-        <div className="card">
-          <h2>Alertas e reposição</h2>
-          <div className="alert-panel">
-            <h3>Alertas de agora</h3>
-            {notificationsEnabled && alerts.length === 0 && (
-              <p className="muted">Nenhum alerta previsto nos próximos minutos.</p>
-            )}
-            {!notificationsEnabled && (
-              <p className="muted">
-                Ative os alertas do app para ver as notificações em tempo real.
-              </p>
-            )}
-            {notificationsEnabled && alerts.length > 0 && (
-              <div className="alert-list">
-                {alerts.map((alert) => (
-                  <div className="alert-item" key={`${alert.medId}-${alert.time}`}>
-                    <div>
-                      <strong>{alert.name}</strong>
-                      <span>
-                        Dose: {alert.doseAmount} {alert.unit} às {alert.time}
-                      </span>
-                    </div>
-                    <span className="badge">Agora</span>
+            <div className="card">
+              <h2>Alertas e reposição</h2>
+              <div className="alert-panel">
+                <h3>Alertas de agora</h3>
+                {notificationsEnabled && alerts.length === 0 && (
+                  <p className="muted">
+                    Nenhum alerta previsto nos próximos minutos.
+                  </p>
+                )}
+                {!notificationsEnabled && (
+                  <p className="muted">
+                    Ative os alertas do app para ver as notificações em tempo real.
+                  </p>
+                )}
+                {notificationsEnabled && alerts.length > 0 && (
+                  <div className="alert-list">
+                    {alerts.map((alert) => (
+                      <div
+                        className="alert-item"
+                        key={`${alert.medId}-${alert.time}`}
+                      >
+                        <div>
+                          <strong>{alert.name}</strong>
+                          <span>
+                            Dose: {alert.doseAmount} {alert.unit} às {alert.time}
+                          </span>
+                        </div>
+                        <span className="badge">Agora</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
-            )}
-          </div>
-          <div className="low-stock">
-            <h3>Estoque baixo</h3>
-            {lowStockMeds.length === 0 && (
-              <p className="muted">Tudo certo por aqui. Sem reposições urgentes.</p>
-            )}
-            {lowStockMeds.length > 0 && (
-              <div className="alert-list">
-                {lowStockMeds.map((med) => (
-                  <div className="alert-item warning" key={med.id}>
-                    <div>
-                      <strong>{med.name}</strong>
-                      <span>
-                        Restam {med.stock} unidades. Repor quando possível.
-                      </span>
-                    </div>
-                    <span className="badge warning">Repor</span>
+              <div className="low-stock">
+                <h3>Estoque baixo</h3>
+                {lowStockMeds.length === 0 && (
+                  <p className="muted">
+                    Tudo certo por aqui. Sem reposições urgentes.
+                  </p>
+                )}
+                {lowStockMeds.length > 0 && (
+                  <div className="alert-list">
+                    {lowStockMeds.map((med) => (
+                      <div className="alert-item warning" key={med.id}>
+                        <div>
+                          <strong>{med.name}</strong>
+                          <span>
+                            Restam {med.stock} unidades. Repor quando possível.
+                          </span>
+                        </div>
+                        <span className="badge warning">Repor</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
-            )}
-          </div>
-        </div>
-      </section>
+            </div>
+          </section>
 
-      <section className="card list">
-        <h2>Minhas medicações</h2>
-        <div className="med-grid">
-          {meds.map((med) => {
-            const nextDose = getNextDose(med.scheduleTimes);
-            const isLowStock = med.stock <= med.lowThreshold;
-            return (
-              <article className={`med-card ${isLowStock ? "danger" : ""}`} key={med.id}>
-                <header>
-                  <div>
-                    <h3>{med.name}</h3>
-                    <p className="muted">
-                      {med.dosage ? `${med.dosage} ${med.unit}` : med.unit}
-                    </p>
-                  </div>
-                  <button className="btn ghost" onClick={() => handleDelete(med.id)}>
-                    Excluir
-                  </button>
-                </header>
-                <div className="med-info">
-                  <span>
-                    <strong>Horários:</strong>{" "}
-                    {med.scheduleTimes.length ? med.scheduleTimes.join(", ") : "—"}
-                  </span>
-                  <span>
-                    <strong>Próxima dose:</strong>{" "}
-                    {nextDose ? nextDose.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "—"}
-                  </span>
-                  <span>
-                    <strong>Estoque:</strong> {med.stock} unidades
-                  </span>
-                  <span>
-                    <strong>Última dose:</strong> {formatDateTime(med.lastTaken)}
-                  </span>
-                  {med.notes && <span className="notes">{med.notes}</span>}
-                </div>
-                <div className="med-actions">
-                  <button className="btn" onClick={() => handleRegisterDose(med.id)}>
-                    Registrar dose
-                  </button>
-                  <button
-                    className={`btn ${med.alertsEnabled ? "secondary" : "ghost"}`}
-                    onClick={() => handleToggleAlert(med.id)}
+          <section className="card list">
+            <h2>Minhas medicações</h2>
+            {cloudError && <p className="helper-text">{cloudError}</p>}
+            {isLoadingMeds && (
+              <p className="muted">Carregando medicações...</p>
+            )}
+            <div className="med-grid">
+              {meds.map((med) => {
+                const nextDose = getNextDose(med.scheduleTimes);
+                const isLowStock = med.stock <= med.lowThreshold;
+                return (
+                  <article
+                    className={`med-card ${isLowStock ? "danger" : ""}`}
+                    key={med.id}
                   >
-                    {med.alertsEnabled ? "Alertas ativos" : "Alertas desativados"}
-                  </button>
-                  {isLowStock && <span className="pill">Estoque baixo</span>}
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      </section>
+                    <header>
+                      <div>
+                        <h3>{med.name}</h3>
+                        <p className="muted">
+                          {med.dosage ? `${med.dosage} ${med.unit}` : med.unit}
+                        </p>
+                      </div>
+                      <button
+                        className="btn ghost"
+                        onClick={() => handleDelete(med.id)}
+                      >
+                        Excluir
+                      </button>
+                    </header>
+                    <div className="med-info">
+                      <span>
+                        <strong>Horários:</strong>{" "}
+                        {med.scheduleTimes.length
+                          ? med.scheduleTimes.join(", ")
+                          : "—"}
+                      </span>
+                      <span>
+                        <strong>Próxima dose:</strong>{" "}
+                        {nextDose
+                          ? nextDose.toLocaleTimeString("pt-BR", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : "—"}
+                      </span>
+                      <span>
+                        <strong>Estoque:</strong> {med.stock} unidades
+                      </span>
+                      <span>
+                        <strong>Última dose:</strong>{" "}
+                        {formatDateTime(med.lastTaken)}
+                      </span>
+                      {med.notes && <span className="notes">{med.notes}</span>}
+                    </div>
+                    <div className="med-actions">
+                      <button
+                        className="btn"
+                        onClick={() => handleRegisterDose(med.id)}
+                      >
+                        Registrar dose
+                      </button>
+                      <button
+                        className={`btn ${
+                          med.alertsEnabled ? "secondary" : "ghost"
+                        }`}
+                        onClick={() => handleToggleAlert(med.id)}
+                      >
+                        {med.alertsEnabled
+                          ? "Alertas ativos"
+                          : "Alertas desativados"}
+                      </button>
+                      {isLowStock && <span className="pill">Estoque baixo</span>}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        </>
+      )}
     </div>
   );
 }
