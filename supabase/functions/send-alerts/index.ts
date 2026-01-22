@@ -54,17 +54,24 @@ const sendWhatsApp = async (
     Body: message,
   });
   const auth = btoa(`${accountSid}:${authToken}`);
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${auth}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body,
-  });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Twilio error: ${response.status} ${errorText}`);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body,
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Twilio error: ${response.status} ${errorText}`);
+    }
+  } finally {
+    clearTimeout(timeoutId);
   }
 };
 
