@@ -25,7 +25,7 @@ const defaultForm = {
 const defaultUser = {
   fullName: "",
   email: "",
-  phoneNumbers: ["", "", ""],
+  phoneNumbers: ["", "", "", ""],
   password: "",
   timezone: "UTC",
 };
@@ -34,7 +34,7 @@ const defaultUserState = {
   id: "",
   fullName: "",
   email: "",
-  phoneNumbers: ["", "", ""],
+  phoneNumbers: ["", "", "", ""],
   timezone: "UTC",
   whatsappEnabled: true,
 };
@@ -54,7 +54,7 @@ const fromDbUser = (row) => ({
   username: row.username ?? "",
   fullName: row.full_name ?? "",
   email: row.email ?? "",
-  phoneNumbers: row.phone_numbers ?? ["", "", ""],
+  phoneNumbers: row.phone_numbers ?? ["", "", "", ""],
   whatsappEnabled: row.whatsapp_enabled ?? true,
   timezone: row.timezone ?? "UTC",
 });
@@ -295,7 +295,7 @@ export default function App() {
   const [tick, setTick] = useState(Date.now());
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [whatsappEnabled, setWhatsappEnabled] = useState(true);
-  const [phoneNumbers, setPhoneNumbers] = useState(["", "", ""]);
+  const [phoneNumbers, setPhoneNumbers] = useState(["", "", "", ""]);
   const [isLoadingMeds, setIsLoadingMeds] = useState(false);
   const [cloudError, setCloudError] = useState("");
   const [authError, setAuthError] = useState("");
@@ -323,11 +323,11 @@ export default function App() {
         const parsed = JSON.parse(settings);
         setNotificationsEnabled(Boolean(parsed.notificationsEnabled));
         setWhatsappEnabled(Boolean(parsed.whatsappEnabled));
-        setPhoneNumbers(parsed.phoneNumbers || ["", "", ""]);
+        setPhoneNumbers(parsed.phoneNumbers || ["", "", "", ""]);
       } catch {
         setNotificationsEnabled(false);
         setWhatsappEnabled(false);
-        setPhoneNumbers(["", "", ""]);
+        setPhoneNumbers(["", "", "", ""]);
       }
     }
 
@@ -340,7 +340,7 @@ export default function App() {
           setUserForm({
             fullName: parsed.fullName || "",
             email: parsed.email || "",
-            phoneNumbers: parsed.phoneNumbers || ["", "", ""],
+            phoneNumbers: parsed.phoneNumbers || ["", "", "", ""],
             password: "",
             timezone: parsed.timezone || "UTC",
           });
@@ -432,7 +432,7 @@ export default function App() {
           password: "",
           timezone: updatedUser.timezone || "UTC",
         });
-        setPhoneNumbers(updatedUser.phoneNumbers ?? ["", "", ""]);
+        setPhoneNumbers(updatedUser.phoneNumbers ?? ["", "", "", ""]);
         setWhatsappEnabled(updatedUser.whatsappEnabled ?? true);
       } catch {
         setCloudError("Não foi possível carregar o perfil compartilhado.");
@@ -620,7 +620,12 @@ export default function App() {
       return;
     }
 
-    setUser({ id: "local-user", fullName, email: "", phoneNumbers: ["", "", ""] });
+    setUser({
+      id: "local-user",
+      fullName,
+      email: "",
+      phoneNumbers: ["", "", "", ""],
+    });
     setAuthError("");
     setUserForm((prev) => ({ ...prev, password: "" }));
     setShowProfileForm(false);
@@ -659,7 +664,7 @@ export default function App() {
         const trimmedUser = {
           fullName,
           email: "",
-          phoneNumbers: ["", "", ""],
+          phoneNumbers: ["", "", "", ""],
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
         };
         const whatsappEnabledValue = true;
@@ -693,7 +698,7 @@ export default function App() {
       id: "local-user",
       fullName,
       email: "",
-      phoneNumbers: ["", "", ""],
+      phoneNumbers: ["", "", "", ""],
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
       whatsappEnabled: true,
     });
@@ -793,7 +798,7 @@ export default function App() {
     setUser(defaultUserState);
     setUserForm(defaultUser);
     setMeds([]);
-    setPhoneNumbers(["", "", ""]);
+    setPhoneNumbers(["", "", "", ""]);
     setShowProfileForm(true);
     setAuthError("");
     localStorage.removeItem(USER_KEY);
@@ -1005,7 +1010,7 @@ export default function App() {
                 ? "Twilio WhatsApp configurado e enviando."
                 : whatsappStatus === "error"
                   ? "Falha ao enviar via Twilio. Revise as variaveis."
-                  : "Requer Twilio WhatsApp configurado no Netlify."}
+                  : ""}
               </span>
             </div>
           </div>
@@ -1095,7 +1100,7 @@ export default function App() {
                   </div>
                 ))}
                 <span className="helper-text">
-                  Adicione ate 3 numeros para receber alertas.
+                  Adicione ate 4 numeros para receber alertas.
                 </span>
               </div>
               {authError && <span className="helper-text">{authError}</span>}
