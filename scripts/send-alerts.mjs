@@ -85,7 +85,6 @@ const fetchMedsPage = async (offset) => {
       "last_auto_dose_key",
       "last_whatsapp_alert_key",
       "last_low_stock_whatsapp_date",
-      "profiles:profiles(phone_numbers,whatsapp_enabled,timezone)",
     ].join(",")
   );
   url.searchParams.set("alerts_enabled", "eq.true");
@@ -104,6 +103,39 @@ const fetchMedsPage = async (offset) => {
     throw new Error(`Supabase error: ${response.status} ${text}`);
   }
   return response.json();
+};
+
+const fetchProfiles = async (userIds) => {
+  if (!userIds.length) return new Map();
+  const chunks = [];
+  for (let i = 0; i < userIds.length; i += 100) {
+    chunks.push(userIds.slice(i, i + 100));
+  }
+
+  const results = await Promise.all(
+    chunks.map(async (chunk) => {
+      const url = new URL(`${supabaseUrl}/rest/v1/profiles`);
+      url.searchParams.set("select", "id,phone_numbers,whatsapp_enabled,timezone");
+      url.searchParams.set("id", `in.(${chunk.join(",")})`);
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${serviceRoleKey}`,
+          apikey: serviceRoleKey,
+        },
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Supabase profiles error: ${response.status} ${text}`);
+      }
+      return response.json();
+    })
+  );
+
+  const map = new Map();
+  results.flat().forEach((profile) => {
+    map.set(profile.id, profile);
+  });
+  return map;
 };
 
 const updateMed = async (medId, payload) => {
@@ -133,9 +165,11 @@ const run = async () => {
   while (sentCount < MAX_SENDS_PER_RUN) {
     const page = await fetchMedsPage(offset);
     if (!page.length) break;
+    const userIds = [...new Set(page.map((med) => med.user_id).filter(Boolean))];
+    const profiles = await fetchProfiles(userIds);
 
     for (const med of page) {
-      const profile = med.profiles;
+      const profile = profiles.get(med.user_id);
       if (!profile || profile.whatsapp_enabled === false) continue;
       const phones = (profile.phone_numbers || []).filter((value) => value?.trim());
       if (!phones.length) continue;
