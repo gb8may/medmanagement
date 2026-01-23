@@ -6,6 +6,8 @@ const SETTINGS_KEY = "medmanager:settings";
 const USER_KEY = "medwatch:user";
 const ALERT_WINDOW_MINUTES = 10;
 const WHATSAPP_ENDPOINT = "/.netlify/functions/send-whatsapp";
+const MAX_PHONE_NUMBERS = 4;
+const DEFAULT_PHONE_NUMBERS = [""];
 
 const sampleMeds = [];
 
@@ -24,7 +26,7 @@ const defaultForm = {
 
 const defaultUser = {
   fullName: "",
-  phoneNumbers: ["", "", "", ""],
+  phoneNumbers: DEFAULT_PHONE_NUMBERS,
   password: "",
   timezone: "device",
 };
@@ -32,7 +34,7 @@ const defaultUser = {
 const defaultUserState = {
   id: "",
   fullName: "",
-  phoneNumbers: ["", "", "", ""],
+  phoneNumbers: DEFAULT_PHONE_NUMBERS,
   timezone: "device",
   whatsappEnabled: true,
 };
@@ -50,7 +52,7 @@ const fromDbUser = (row) => ({
   id: row.id,
   username: row.username ?? "",
   fullName: row.full_name ?? "",
-  phoneNumbers: row.phone_numbers ?? ["", "", "", ""],
+  phoneNumbers: row.phone_numbers ?? DEFAULT_PHONE_NUMBERS,
   whatsappEnabled: row.whatsapp_enabled ?? true,
   timezone: row.timezone ?? "device",
 });
@@ -82,9 +84,19 @@ const resolveTimezoneSelection = (storedTimezone) => {
   return storedTimezone;
 };
 
+const normalizePhoneNumbers = (value) => {
+  if (!Array.isArray(value) || value.length === 0) {
+    return DEFAULT_PHONE_NUMBERS;
+  }
+  const cleaned = value
+    .map((item) => (item == null ? "" : String(item)))
+    .slice(0, MAX_PHONE_NUMBERS);
+  return cleaned.length ? cleaned : DEFAULT_PHONE_NUMBERS;
+};
+
 const buildEmptyProfile = (fullName, timezoneSelection) => ({
   fullName,
-  phoneNumbers: ["", "", "", ""],
+  phoneNumbers: DEFAULT_PHONE_NUMBERS,
   timezone: resolveTimezoneValue(timezoneSelection || "device"),
 });
 
@@ -316,7 +328,7 @@ export default function App() {
   const [tick, setTick] = useState(Date.now());
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [whatsappEnabled, setWhatsappEnabled] = useState(true);
-  const [phoneNumbers, setPhoneNumbers] = useState(["", "", "", ""]);
+  const [phoneNumbers, setPhoneNumbers] = useState(DEFAULT_PHONE_NUMBERS);
   const [isLoadingMeds, setIsLoadingMeds] = useState(false);
   const [cloudError, setCloudError] = useState("");
   const [authError, setAuthError] = useState("");
@@ -344,11 +356,11 @@ export default function App() {
         const parsed = JSON.parse(settings);
         setNotificationsEnabled(Boolean(parsed.notificationsEnabled));
         setWhatsappEnabled(Boolean(parsed.whatsappEnabled));
-        setPhoneNumbers(parsed.phoneNumbers || ["", "", "", ""]);
+        setPhoneNumbers(normalizePhoneNumbers(parsed.phoneNumbers));
       } catch {
         setNotificationsEnabled(false);
         setWhatsappEnabled(false);
-        setPhoneNumbers(["", "", "", ""]);
+        setPhoneNumbers(DEFAULT_PHONE_NUMBERS);
       }
     }
 
@@ -360,7 +372,7 @@ export default function App() {
           setUser(parsed);
           setUserForm({
             fullName: parsed.fullName || "",
-            phoneNumbers: parsed.phoneNumbers || ["", "", "", ""],
+            phoneNumbers: normalizePhoneNumbers(parsed.phoneNumbers),
             password: "",
             timezone: resolveTimezoneSelection(parsed.timezone),
           });
@@ -439,11 +451,11 @@ export default function App() {
         setUser(updatedUser);
         setUserForm({
           fullName: updatedUser.fullName,
-          phoneNumbers: updatedUser.phoneNumbers,
+          phoneNumbers: normalizePhoneNumbers(updatedUser.phoneNumbers),
           password: "",
           timezone: resolveTimezoneSelection(updatedUser.timezone),
         });
-        setPhoneNumbers(updatedUser.phoneNumbers ?? ["", "", "", ""]);
+        setPhoneNumbers(normalizePhoneNumbers(updatedUser.phoneNumbers));
         setWhatsappEnabled(updatedUser.whatsappEnabled ?? true);
       } catch {
         setCloudError("Não foi possível carregar o perfil compartilhado.");
@@ -591,6 +603,23 @@ export default function App() {
     });
   };
 
+  const handleAddPhoneNumber = () => {
+    setUserForm((prev) => {
+      if (prev.phoneNumbers.length >= MAX_PHONE_NUMBERS) return prev;
+      return { ...prev, phoneNumbers: [...prev.phoneNumbers, ""] };
+    });
+  };
+
+  const handleRemovePhoneNumber = (index) => {
+    setUserForm((prev) => {
+      const updated = prev.phoneNumbers.filter((_, idx) => idx !== index);
+      return {
+        ...prev,
+        phoneNumbers: updated.length ? updated : DEFAULT_PHONE_NUMBERS,
+      };
+    });
+  };
+
   const handleTimezoneChange = async (value) => {
     setUserForm((prev) => ({ ...prev, timezone: value }));
     setUser((prev) => ({ ...prev, timezone: value }));
@@ -693,7 +722,7 @@ export default function App() {
     setUser({
       id: "local-user",
       fullName,
-      phoneNumbers: ["", "", "", ""],
+      phoneNumbers: DEFAULT_PHONE_NUMBERS,
     });
     setAuthError("");
     setUserForm((prev) => ({ ...prev, password: "" }));
@@ -750,7 +779,7 @@ export default function App() {
     setUser({
       id: "local-user",
       fullName,
-      phoneNumbers: ["", "", "", ""],
+      phoneNumbers: DEFAULT_PHONE_NUMBERS,
       timezone: resolveTimezoneValue(userForm.timezone || "device"),
       whatsappEnabled: true,
     });
@@ -848,7 +877,7 @@ export default function App() {
     setUser(defaultUserState);
     setUserForm(defaultUser);
     setMeds([]);
-    setPhoneNumbers(["", "", "", ""]);
+    setPhoneNumbers(DEFAULT_PHONE_NUMBERS);
     setShowProfileForm(true);
     setAuthError("");
     localStorage.removeItem(USER_KEY);
@@ -1149,8 +1178,25 @@ export default function App() {
                         handlePhoneNumberChange(index, event.target.value)
                       }
                     />
+                    <button
+                      className="btn ghost"
+                      type="button"
+                      onClick={() => handleRemovePhoneNumber(index)}
+                      disabled={userForm.phoneNumbers.length === 1}
+                    >
+                      Remover
+                    </button>
                   </div>
                 ))}
+                {userForm.phoneNumbers.length < MAX_PHONE_NUMBERS && (
+                  <button
+                    className="btn ghost"
+                    type="button"
+                    onClick={handleAddPhoneNumber}
+                  >
+                    + Adicionar numero
+                  </button>
+                )}
                 <span className="helper-text">
                   Adicione ate 4 numeros para receber alertas.
                 </span>
