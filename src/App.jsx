@@ -57,12 +57,6 @@ const fromDbUser = (row) => ({
   timezone: row.timezone ?? "device",
 });
 
-const timezoneOptions = [
-  { value: "device", label: "Copiar do Smartphone" },
-  { value: "America/Sao_Paulo", label: "Brasil" },
-  { value: "America/New_York", label: "Canada (EST)" },
-];
-
 const normalizeUsername = (value) =>
   value
     .normalize("NFD")
@@ -75,14 +69,10 @@ const buildAuthEmail = (username) => `${username}@medwatch.local`;
 const getDeviceTimezone = () =>
   Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
-const resolveTimezoneValue = (selection) =>
-  selection === "device" ? getDeviceTimezone() : selection;
+const resolveTimezoneValue = () => getDeviceTimezone();
 
-const resolveTimezoneSelection = (storedTimezone) => {
-  if (!storedTimezone) return "device";
-  if (storedTimezone === getDeviceTimezone()) return "device";
-  return storedTimezone;
-};
+const resolveTimezoneSelection = (storedTimezone) =>
+  storedTimezone || getDeviceTimezone();
 
 const normalizePhoneNumbers = (value) => {
   if (!Array.isArray(value) || value.length === 0) {
@@ -97,7 +87,7 @@ const normalizePhoneNumbers = (value) => {
 const buildEmptyProfile = (fullName, timezoneSelection) => ({
   fullName,
   phoneNumbers: DEFAULT_PHONE_NUMBERS,
-  timezone: resolveTimezoneValue(timezoneSelection || "device"),
+  timezone: resolveTimezoneValue(),
 });
 
 const toDbMed = (med, userId) => ({
@@ -620,34 +610,6 @@ export default function App() {
     });
   };
 
-  const handleTimezoneChange = async (value) => {
-    setUserForm((prev) => ({ ...prev, timezone: value }));
-    setUser((prev) => ({ ...prev, timezone: value }));
-
-    if (!cloudEnabled || !user.id) return;
-    try {
-      const username = user.username || normalizeUsername(user.fullName);
-      await supabase
-        .from("profiles")
-        .update(
-          toDbUser(
-            {
-              fullName: user.fullName,
-              phoneNumbers,
-              timezone: value,
-            },
-            user.id,
-            username,
-            whatsappEnabled,
-            resolveTimezoneValue(value)
-          )
-        )
-        .eq("id", user.id);
-    } catch {
-      setCloudError("Não foi possível atualizar o timezone.");
-    }
-  };
-
   const ensureProfile = async (authUserId, username, fullName) => {
     const { data, error } = await supabase
       .from("profiles")
@@ -659,7 +621,7 @@ export default function App() {
       return fromDbUser(data);
     }
 
-    const emptyProfile = buildEmptyProfile(fullName, userForm.timezone);
+    const emptyProfile = buildEmptyProfile(fullName, getDeviceTimezone());
     const { data: created, error: createError } = await supabase
       .from("profiles")
       .insert(
@@ -780,7 +742,7 @@ export default function App() {
       id: "local-user",
       fullName,
       phoneNumbers: DEFAULT_PHONE_NUMBERS,
-      timezone: resolveTimezoneValue(userForm.timezone || "device"),
+      timezone: resolveTimezoneValue(),
       whatsappEnabled: true,
     });
     setAuthError("");
@@ -793,7 +755,7 @@ export default function App() {
     const trimmedUser = {
       fullName: userForm.fullName.trim(),
       phoneNumbers: userForm.phoneNumbers.map((phone) => phone.trim()),
-      timezone: resolveTimezoneValue(userForm.timezone || "device"),
+      timezone: resolveTimezoneValue(),
     };
     if (!trimmedUser.fullName) {
       setAuthError("Informe o nome completo.");
@@ -1305,21 +1267,6 @@ export default function App() {
               <button className="btn ghost" type="button" onClick={handleAddTime}>
                 + Adicionar horário
               </button>
-            </div>
-            <div className="times">
-              <span>Timezone dos alertas</span>
-              {timezoneOptions.map((option) => (
-                <label className="toggle" key={option.value}>
-                  <input
-                    type="radio"
-                    name="timezone"
-                    value={option.value}
-                    checked={userForm.timezone === option.value}
-                    onChange={(event) => handleTimezoneChange(event.target.value)}
-                  />
-                  {option.label}
-                </label>
-              ))}
             </div>
             <label className="toggle">
               <input

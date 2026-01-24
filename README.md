@@ -42,6 +42,8 @@ Configure os secrets no GitHub:
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_WHATSAPP_FROM`
+- `TWILIO_TEMPLATE_ALERT_DOSE_SID`
+- `TWILIO_TEMPLATE_LOW_STOCK_SID`
 
 ### Ajustes no banco (Supabase)
 

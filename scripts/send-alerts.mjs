@@ -7,12 +7,17 @@ const serviceRoleKey = process.env.SERVICE_ROLE_KEY;
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const fromNumber = process.env.TWILIO_WHATSAPP_FROM;
+const templateAlertDose = process.env.TWILIO_TEMPLATE_ALERT_DOSE_SID;
+const templateLowStock = process.env.TWILIO_TEMPLATE_LOW_STOCK_SID;
 
 if (!supabaseUrl || !serviceRoleKey) {
   throw new Error("Missing SUPABASE_URL or SERVICE_ROLE_KEY.");
 }
 if (!accountSid || !authToken || !fromNumber) {
   throw new Error("Missing Twilio credentials.");
+}
+if (!templateAlertDose || !templateLowStock) {
+  throw new Error("Missing Twilio template SIDs.");
 }
 
 const toMinutes = (time) => {
@@ -44,12 +49,13 @@ const buildAlertKey = (dateString, time) => `${dateString}-${time}`;
 const normalizePhone = (value) =>
   value.startsWith("whatsapp:") ? value : `whatsapp:${value}`;
 
-const sendWhatsApp = async (to, message) => {
+const sendWhatsAppTemplate = async (to, contentSid, variables) => {
   const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
   const body = new URLSearchParams({
     From: normalizePhone(fromNumber),
     To: normalizePhone(to),
-    Body: message,
+    ContentSid: contentSid,
+    ContentVariables: JSON.stringify(variables),
   });
   const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
   const response = await fetch(url, {
@@ -188,7 +194,7 @@ const run = async () => {
       let newStock = med.stock;
       let shouldUpdate = false;
 
-      const greeting = profile.full_name ? `Olá ${profile.full_name}, ` : "";
+      const displayName = profile.full_name || "usuário";
 
       for (const time of med.schedule_times) {
         const scheduledMinutes = toMinutes(time);
@@ -197,9 +203,13 @@ const run = async () => {
 
         const alertKey = buildAlertKey(parts.dateString, time);
         if (med.last_whatsapp_alert_key !== alertKey) {
-          const message = `${greeting}Hora de tomar ${med.name}. ${med.dose_amount} ${med.unit} às ${time}.`;
           for (const phone of phones) {
-            await sendWhatsApp(phone, message);
+            await sendWhatsAppTemplate(phone, templateAlertDose, {
+              "1": displayName,
+              "2": med.name,
+              "3": String(med.dose_amount),
+              "4": time,
+            });
             sentCount += 1;
             if (sentCount >= MAX_SENDS_PER_RUN) break;
           }
@@ -219,9 +229,12 @@ const run = async () => {
         med.stock <= med.low_threshold &&
         med.last_low_stock_whatsapp_date !== parts.dateString
       ) {
-        const message = `${greeting}Estoque baixo: ${med.name}. Restam ${med.stock} comprimidos. Providencie reposição.`;
         for (const phone of phones) {
-          await sendWhatsApp(phone, message);
+          await sendWhatsAppTemplate(phone, templateLowStock, {
+            "1": displayName,
+            "2": med.name,
+            "3": String(med.stock),
+          });
           sentCount += 1;
           if (sentCount >= MAX_SENDS_PER_RUN) break;
         }

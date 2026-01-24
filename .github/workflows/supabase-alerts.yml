@@ -18,6 +18,8 @@ jobs:
           TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
           TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
           TWILIO_WHATSAPP_FROM: ${{ secrets.TWILIO_WHATSAPP_FROM }}
+          TWILIO_TEMPLATE_ALERT_DOSE_SID: ${{ secrets.TWILIO_TEMPLATE_ALERT_DOSE_SID }}
+          TWILIO_TEMPLATE_LOW_STOCK_SID: ${{ secrets.TWILIO_TEMPLATE_LOW_STOCK_SID }}
         run: |
           if [ -z "$SUPABASE_URL" ] || [ -z "$SERVICE_ROLE_KEY" ]; then
             echo "Missing SUPABASE_URL or SERVICE_ROLE_KEY secrets."
@@ -25,6 +27,10 @@ jobs:
           fi
           if [ -z "$TWILIO_ACCOUNT_SID" ] || [ -z "$TWILIO_AUTH_TOKEN" ] || [ -z "$TWILIO_WHATSAPP_FROM" ]; then
             echo "Missing Twilio secrets."
+            exit 1
+          fi
+          if [ -z "$TWILIO_TEMPLATE_ALERT_DOSE_SID" ] || [ -z "$TWILIO_TEMPLATE_LOW_STOCK_SID" ]; then
+            echo "Missing Twilio template SID secrets."
             exit 1
           fi
           node "scripts/send-alerts.mjs"
