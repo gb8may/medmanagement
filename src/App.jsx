@@ -177,7 +177,11 @@ const parseTimeToDate = (baseDate, time) => {
 const getNextDose = (scheduleTimes) => {
   if (!scheduleTimes?.length) return null;
   const now = new Date();
-  const times = [...scheduleTimes].sort();
+  const times = scheduleTimes
+    .map((entry) => (typeof entry === "string" ? entry : entry?.time))
+    .filter(Boolean)
+    .sort();
+  if (!times.length) return null;
   for (const time of times) {
     const candidate = parseTimeToDate(now, time);
     if (candidate >= now) {
@@ -1407,7 +1411,13 @@ export default function App() {
                       <span>
                         <strong>Horários:</strong>{" "}
                         {med.scheduleTimes.length
-                          ? med.scheduleTimes.join(", ")
+                          ? med.scheduleTimes
+                              .map((entry) =>
+                                typeof entry === "string"
+                                  ? entry
+                                  : `${entry.time} (${entry.pills})`
+                              )
+                              .join(", ")
                           : "—"}
                       </span>
                       <span>
