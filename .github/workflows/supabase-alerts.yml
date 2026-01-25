@@ -37,7 +37,8 @@ jobs:
       - name: Report sent count
         run: |
           if [ -s /tmp/alerts.json ]; then
-            node -e 'const fs=require("fs");const lines=fs.readFileSync("/tmp/alerts.json","utf8").trim().split(/\r?\n/);const last=lines[lines.length-1]||"{}";const data=JSON.parse(last);const count=data.sentCount ?? 0;console.log("Messages sent: "+count);'
+            node -e 'const fs=require("fs");const lines=fs.readFileSync("/tmp/alerts.json","utf8").trim().split(/\r?\n/);const last=lines[lines.length-1]||"{}";const data=JSON.parse(last);const count=data.sentCount ?? 0;console.log("Messages sent: "+count);fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Messages sent: ${count}\n`);'
           else
             echo "Messages sent: 0"
+            echo "Messages sent: 0" >> "$GITHUB_STEP_SUMMARY"
           fi
