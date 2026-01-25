@@ -525,45 +525,6 @@ export default function App() {
       setMeds(updatedMeds);
     }
 
-    const activePhoneNumbers = phoneNumbers.filter((value) => value.trim());
-    if (!cloudEnabled && whatsappEnabled && activePhoneNumbers.length) {
-      const { queue, updatedMeds: whatsappUpdatedMeds } = computeWhatsappQueue(
-        baseMeds,
-        dueAlerts,
-        now
-      );
-      if (whatsappUpdatedMeds) {
-        setMeds(whatsappUpdatedMeds);
-      } else if (updatedMeds) {
-        setMeds(updatedMeds);
-      }
-
-      if (queue.length) {
-        const sendQueue = async () => {
-          for (const message of queue) {
-            for (const to of activePhoneNumbers) {
-              try {
-                const response = await fetch(WHATSAPP_ENDPOINT, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ to, message }),
-                });
-                if (!response.ok) {
-                  setWhatsappStatus("error");
-                } else {
-                  setWhatsappStatus("success");
-                }
-              } catch {
-                // Falha silenciosa para não travar o fluxo principal.
-                setWhatsappStatus("error");
-              }
-            }
-          }
-        };
-        sendQueue();
-      }
-      return;
-    }
   }, [
     meds,
     tick,
