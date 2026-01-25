@@ -18,7 +18,7 @@ const defaultForm = {
   doseAmount: 1,
   stock: 30,
   lowThreshold: 5,
-  scheduleTimes: ["08:00"],
+  scheduleTimes: [{ time: "08:00", pills: 1 }],
   alertsEnabled: true,
   autoDeduct: true,
   notes: "",
@@ -98,7 +98,10 @@ const toDbMed = (med, userId) => ({
   dose_amount: med.doseAmount,
   stock: med.stock,
   low_threshold: med.lowThreshold,
-  schedule_times: med.scheduleTimes,
+  schedule_times: med.scheduleTimes.map((entry) => ({
+    time: entry.time,
+    pills: toNumber(entry.pills, med.doseAmount || 1),
+  })),
   alerts_enabled: med.alertsEnabled,
   auto_deduct: med.autoDeduct,
   notes: med.notes,
@@ -117,7 +120,7 @@ const fromDbMed = (row) => ({
   doseAmount: row.dose_amount ?? 1,
   stock: row.stock ?? 0,
   lowThreshold: row.low_threshold ?? 0,
-  scheduleTimes: row.schedule_times ?? [],
+  scheduleTimes: normalizeScheduleTimes(row.schedule_times, row.dose_amount ?? 1),
   alertsEnabled: row.alerts_enabled ?? true,
   autoDeduct: row.auto_deduct ?? false,
   notes: row.notes ?? "",
@@ -137,6 +140,27 @@ const formatDateTime = (value) => {
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isNaN(parsed) ? fallback : parsed;
+};
+
+const normalizeScheduleTimes = (value, fallbackPills = 1) => {
+  if (!Array.isArray(value) || value.length === 0) {
+    return [{ time: "08:00", pills: fallbackPills }];
+  }
+  const normalized = value
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return { time: entry, pills: fallbackPills };
+      }
+      if (entry && typeof entry === "object") {
+        return {
+          time: entry.time || "08:00",
+          pills: toNumber(entry.pills, fallbackPills),
+        };
+      }
+      return null;
+    })
+    .filter(Boolean);
+  return normalized.length ? normalized : [{ time: "08:00", pills: fallbackPills }];
 };
 
 const buildAlertKey = (date, time) => `${date}-${time}`;
@@ -173,18 +197,18 @@ const computeAlerts = (meds, now) => {
     }
 
     let lastAlertKey = med.lastAlertKey;
-    med.scheduleTimes.forEach((time) => {
-      const scheduledTime = parseTimeToDate(now, time);
+    med.scheduleTimes.forEach((entry) => {
+      const scheduledTime = parseTimeToDate(now, entry.time);
       const diffMinutes = (now - scheduledTime) / 60000;
       if (diffMinutes >= 0 && diffMinutes <= ALERT_WINDOW_MINUTES) {
-        const alertKey = buildAlertKey(today, time);
+        const alertKey = buildAlertKey(today, entry.time);
         if (lastAlertKey !== alertKey) {
           lastAlertKey = alertKey;
           dueAlerts.push({
             medId: med.id,
             name: med.name,
-            time,
-            doseAmount: med.doseAmount,
+            time: entry.time,
+            doseAmount: toNumber(entry.pills, med.doseAmount || 1),
             unit: med.unit,
             alertKey,
           });
@@ -229,7 +253,7 @@ const applyAutoDoses = (meds, dueAlerts, now) => {
 
     alerts.forEach((alert) => {
       if (alert.alertKey && alert.alertKey !== lastAutoDoseKey) {
-        stock = Math.max(0, stock - med.doseAmount);
+        stock = Math.max(0, stock - alert.doseAmount);
         lastTaken = now.toISOString();
         lastAutoDoseKey = alert.alertKey;
       }
@@ -836,7 +860,15 @@ export default function App() {
   const handleTimeChange = (index, value) => {
     setForm((prev) => {
       const updated = [...prev.scheduleTimes];
-      updated[index] = value;
+      updated[index] = { ...updated[index], time: value };
+      return { ...prev, scheduleTimes: updated };
+    });
+  };
+
+  const handlePillsChange = (index, value) => {
+    setForm((prev) => {
+      const updated = [...prev.scheduleTimes];
+      updated[index] = { ...updated[index], pills: value };
       return { ...prev, scheduleTimes: updated };
     });
   };
@@ -844,14 +876,22 @@ export default function App() {
   const handleAddTime = () => {
     setForm((prev) => ({
       ...prev,
-      scheduleTimes: [...prev.scheduleTimes, "12:00"],
+      scheduleTimes: [
+        ...prev.scheduleTimes,
+        { time: "12:00", pills: prev.doseAmount || 1 },
+      ],
     }));
   };
 
   const handleRemoveTime = (index) => {
     setForm((prev) => {
       const updated = prev.scheduleTimes.filter((_, idx) => idx !== index);
-      return { ...prev, scheduleTimes: updated.length ? updated : ["08:00"] };
+      return {
+        ...prev,
+        scheduleTimes: updated.length
+          ? updated
+          : [{ time: "08:00", pills: prev.doseAmount || 1 }],
+      };
     });
   };
 
@@ -867,7 +907,7 @@ export default function App() {
       doseAmount: toNumber(form.doseAmount, 1),
       stock: toNumber(form.stock, 0),
       lowThreshold: toNumber(form.lowThreshold, 0),
-      scheduleTimes: form.scheduleTimes.filter(Boolean),
+      scheduleTimes: normalizeScheduleTimes(form.scheduleTimes, form.doseAmount),
       alertsEnabled: form.alertsEnabled,
       autoDeduct: form.autoDeduct,
       notes: form.notes.trim(),
@@ -947,7 +987,7 @@ export default function App() {
       doseAmount: med.doseAmount,
       stock: med.stock,
       lowThreshold: med.lowThreshold,
-      scheduleTimes: med.scheduleTimes.length ? med.scheduleTimes : ["08:00"],
+      scheduleTimes: normalizeScheduleTimes(med.scheduleTimes, med.doseAmount),
       alertsEnabled: med.alertsEnabled,
       autoDeduct: med.autoDeduct,
       notes: med.notes,
@@ -1170,7 +1210,7 @@ export default function App() {
                 />
               </label>
               <label>
-                Quantos comprimidos por dose
+                Comprimidos padrão por dose
                 <input
                   type="number"
                   min="1"
@@ -1207,14 +1247,23 @@ export default function App() {
             </div>
             <div className="times">
               <span>Horários</span>
-              {form.scheduleTimes.map((time, index) => (
+              {form.scheduleTimes.map((entry, index) => (
                 <div className="time-row" key={index}>
                   <input
                     type="time"
-                    value={time}
+                    value={entry.time}
                     onChange={(event) =>
                       handleTimeChange(index, event.target.value)
                     }
+                  />
+                  <input
+                    type="number"
+                    min="1"
+                    value={entry.pills}
+                    onChange={(event) =>
+                      handlePillsChange(index, event.target.value)
+                    }
+                    className="pill-input"
                   />
                   <button
                     className="btn ghost"

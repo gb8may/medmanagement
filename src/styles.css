@@ -167,6 +167,10 @@ textarea:focus {
   align-items: center;
 }
 
+.pill-input {
+  width: 110px;
+}
+
 .toggle {
   flex-direction: row;
   align-items: center;

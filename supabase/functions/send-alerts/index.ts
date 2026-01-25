@@ -13,6 +13,29 @@ const toMinutes = (time: string) => {
   return hours * 60 + minutes;
 };
 
+const normalizeScheduleTimes = (
+  value: unknown,
+  fallbackDose: number
+): Array<{ time: string; pills: number }> => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return { time: entry, pills: fallbackDose };
+      }
+      if (entry && typeof entry === "object") {
+        const maybeEntry = entry as { time?: string; pills?: number };
+        if (!maybeEntry.time) return null;
+        return {
+          time: maybeEntry.time,
+          pills: Number(maybeEntry.pills ?? fallbackDose),
+        };
+      }
+      return null;
+    })
+    .filter((value): value is { time: string; pills: number } => Boolean(value));
+};
+
 const getZonedParts = (date: Date, timeZone: string) => {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -99,7 +122,7 @@ type MedRow = {
   dose_amount: number;
   stock: number;
   low_threshold: number;
-  schedule_times: string[];
+  schedule_times: unknown;
   alerts_enabled: boolean;
   auto_deduct: boolean;
   last_alert_key: string | null;
@@ -201,7 +224,11 @@ export default async () => {
       if (!profile || profile.whatsapp_enabled === false) continue;
       const phones = (profile.phone_numbers || []).filter((value) => value?.trim());
       if (!phones.length) continue;
-      if (!med.schedule_times?.length) continue;
+      const scheduleTimes = normalizeScheduleTimes(
+        med.schedule_times,
+        med.dose_amount || 1
+      );
+      if (!scheduleTimes.length) continue;
 
       const timeZone = profile.timezone || "UTC";
       const parts = getZonedParts(now, timeZone);
@@ -213,14 +240,15 @@ export default async () => {
       let newStock = med.stock;
       let shouldUpdate = false;
 
-      for (const time of med.schedule_times) {
-        const scheduledMinutes = toMinutes(time);
+      for (const entry of scheduleTimes) {
+        const scheduledMinutes = toMinutes(entry.time);
         const diffMinutes = nowMinutes - scheduledMinutes;
         if (diffMinutes < 0 || diffMinutes > ALERT_WINDOW_MINUTES) continue;
 
-        const alertKey = buildAlertKey(parts.dateString, time);
+        const alertKey = buildAlertKey(parts.dateString, entry.time);
+        const doseAmount = Number(entry.pills ?? med.dose_amount ?? 1);
         if (med.last_whatsapp_alert_key !== alertKey) {
-          const message = `Hora de tomar ${med.name}. Dose: ${med.dose_amount} ${med.unit} às ${time}.`;
+          const message = `Hora de tomar ${med.name}. Dose: ${doseAmount} ${med.unit} às ${entry.time}.`;
           sentCount += await sendWhatsAppBatch(
             accountSid,
             authToken,
@@ -233,7 +261,7 @@ export default async () => {
         }
 
         if (med.auto_deduct && med.last_auto_dose_key !== alertKey) {
-          newStock = Math.max(0, newStock - med.dose_amount);
+          newStock = Math.max(0, newStock - doseAmount);
           newLastTaken = now.toISOString();
           newLastAutoDoseKey = alertKey;
           shouldUpdate = true;

@@ -25,6 +25,26 @@ const toMinutes = (time) => {
   return hours * 60 + minutes;
 };
 
+const normalizeScheduleTimes = (value, fallbackDose = 1) => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return { time: entry, pills: fallbackDose };
+      }
+      if (entry && typeof entry === "object") {
+        const time = entry.time || "";
+        if (!time) return null;
+        return {
+          time,
+          pills: Number(entry.pills ?? fallbackDose),
+        };
+      }
+      return null;
+    })
+    .filter(Boolean);
+};
+
 const getZonedParts = (date, timeZone) => {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -182,7 +202,11 @@ const run = async () => {
       if (!profile || profile.whatsapp_enabled === false) continue;
       const phones = (profile.phone_numbers || []).filter((value) => value?.trim());
       if (!phones.length) continue;
-      if (!med.schedule_times?.length) continue;
+      const scheduleTimes = normalizeScheduleTimes(
+        med.schedule_times,
+        med.dose_amount || 1
+      );
+      if (!scheduleTimes.length) continue;
 
       const timeZone = profile.timezone || "UTC";
       const parts = getZonedParts(now, timeZone);
@@ -196,19 +220,20 @@ const run = async () => {
 
       const displayName = profile.full_name || "usuário";
 
-      for (const time of med.schedule_times) {
-        const scheduledMinutes = toMinutes(time);
+      for (const entry of scheduleTimes) {
+        const scheduledMinutes = toMinutes(entry.time);
         const diffMinutes = nowMinutes - scheduledMinutes;
         if (diffMinutes < 0 || diffMinutes > ALERT_WINDOW_MINUTES) continue;
 
-        const alertKey = buildAlertKey(parts.dateString, time);
+        const alertKey = buildAlertKey(parts.dateString, entry.time);
+        const doseAmount = Number(entry.pills ?? med.dose_amount ?? 1);
         if (med.last_whatsapp_alert_key !== alertKey) {
           for (const phone of phones) {
             await sendWhatsAppTemplate(phone, templateAlertDose, {
               "1": displayName,
               "2": med.name,
-              "3": String(med.dose_amount),
-              "4": time,
+              "3": String(doseAmount),
+              "4": entry.time,
             });
             sentCount += 1;
             if (sentCount >= MAX_SENDS_PER_RUN) break;
@@ -218,7 +243,7 @@ const run = async () => {
         }
 
         if (med.auto_deduct && med.last_auto_dose_key !== alertKey) {
-          newStock = Math.max(0, newStock - med.dose_amount);
+          newStock = Math.max(0, newStock - doseAmount);
           newLastTaken = now.toISOString();
           newLastAutoDoseKey = alertKey;
           shouldUpdate = true;

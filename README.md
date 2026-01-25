@@ -1,75 +1,15 @@
 # MedWatch
 
-## Deploy no Netlify
+Aplicativo simples para organizar remédios e lembrar os horários de tomar.
 
-Este projeto já inclui `netlify.toml` com o build e publish corretos.
+## Como funciona
 
-1. No Netlify, importe o repositório.
-2. Build command: `npm run build`
-3. Publish directory: `dist`
-4. Faça o deploy.
+- Cadastre o medicamento, horários e quantidade por horário.
+- O app mostra o estoque e avisa quando está baixo.
+- Alertas podem chegar no WhatsApp quando está na hora de tomar.
 
-## Alertas por WhatsApp (Twilio)
+## Como usar
 
-O envio de mensagens usa uma Function do Netlify (`/.netlify/functions/send-whatsapp`).
-Configure as variáveis de ambiente no painel do Netlify (Twilio):
-
-- `TWILIO_ACCOUNT_SID`
-- `TWILIO_AUTH_TOKEN`
-- `TWILIO_WHATSAPP_FROM` (ex: `whatsapp:+14155238886`)
-
-No app, informe seu telefone com DDI (ex: `+5511999999999`) e ative o WhatsApp.
-
-## Alertas em background (Supabase Edge Function)
-
-Para enviar alertas mesmo com o navegador fechado, use a Edge Function do Supabase.
-
-### Variáveis de ambiente (Supabase)
-
-- `SERVICE_ROLE_KEY`
-- `TWILIO_ACCOUNT_SID`
-- `TWILIO_AUTH_TOKEN`
-- `TWILIO_WHATSAPP_FROM` (ex: `whatsapp:+14155238886`)
-
-### Agendamento via GitHub Actions
-
-O workflow em `.github/workflows/supabase-alerts.yml` executa o envio em background.
-
-Configure os secrets no GitHub:
-
-- `SUPABASE_URL`
-- `SERVICE_ROLE_KEY`
-- `TWILIO_ACCOUNT_SID`
-- `TWILIO_AUTH_TOKEN`
-- `TWILIO_WHATSAPP_FROM`
-- `TWILIO_TEMPLATE_ALERT_DOSE_SID`
-- `TWILIO_TEMPLATE_LOW_STOCK_SID`
-
-### Ajustes no banco (Supabase)
-
-```sql
-alter table public.profiles
-  add column if not exists phone_numbers text[],
-  add column if not exists whatsapp_enabled boolean default true,
-  add column if not exists timezone text default 'UTC';
-
-alter table public.meds
-  add column if not exists auto_deduct boolean default false,
-  add column if not exists last_auto_dose_key text;
-```
-
-### Desenvolvimento local
-
-Para testar WhatsApp localmente, use o Netlify CLI:
-
-```
-netlify dev
-```
-
-### Badge opcional
-
-Substitua `SEU_SITE` pelo slug do seu site no Netlify:
-
-```
-[![Netlify Status](https://api.netlify.com/api/v1/badges/SEU_SITE/deploy-status)](https://app.netlify.com/sites/SEU_SITE/deploys)
-```
+1. Adicione seus medicamentos e horários.
+2. Informe seu telefone e ative os alertas.
+3. Acompanhe os lembretes e o estoque.
