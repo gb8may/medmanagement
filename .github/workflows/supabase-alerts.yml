@@ -33,4 +33,11 @@ jobs:
             echo "Missing Twilio template SID secrets."
             exit 1
           fi
-          node "scripts/send-alerts.mjs"
+          node "scripts/send-alerts.mjs" | tee /tmp/alerts.json
+      - name: Report sent count
+        run: |
+          if [ -s /tmp/alerts.json ]; then
+            node -e "const fs=require('fs');const lines=fs.readFileSync('/tmp/alerts.json','utf8').trim().split(/\r?\n/);const last=lines[lines.length-1]||'{}';const data=JSON.parse(last);console.log(`Mensagens enviadas: ${data.sentCount ?? 0}`);"
+          else
+            echo "Mensagens enviadas: 0"
+          fi
